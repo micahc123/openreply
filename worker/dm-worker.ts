@@ -3,9 +3,10 @@ import { recordWorkerHeartbeat } from "@/lib/ops/worker-health";
 import { reconcileComments } from "@/lib/polling/comment-reconciler";
 import { getPollIntervalMs } from "@/lib/ops/poll-config";
 import {
-  pingTokenRefresh,
+  pingCronRoute,
   TOKEN_REFRESH_INTERVAL_MS,
-} from "@/lib/ops/token-refresh-ping";
+  REEL_ATTACH_INTERVAL_MS,
+} from "@/lib/ops/cron-ping";
 import os from "node:os";
 
 const worker = createDMWorker();
@@ -49,10 +50,22 @@ const pollTimer = setInterval(() => void poll(), POLL_INTERVAL_MS);
 // Instagram long-lived tokens expire at ~60 days. The route is idempotent and
 // only acts on tokens within 10 days of expiry, so a daily sweep is enough.
 // First run is delayed 60s so the web service is up before the first call.
-setTimeout(() => void pingTokenRefresh(), 60_000);
+setTimeout(() => void pingCronRoute("/api/cron/refresh-tokens"), 60_000);
 const tokenRefreshTimer = setInterval(
-  () => void pingTokenRefresh(),
+  () => void pingCronRoute("/api/cron/refresh-tokens"),
   TOKEN_REFRESH_INTERVAL_MS
+);
+
+// Instagram sends no webhook when a new reel is published, so campaigns
+// awaiting the creator's "next reel" need polling to bind. Vercel's free
+// plan caps crons at once a day; the worker has no such limit, so this runs
+// every 5 minutes and a campaign goes live within minutes of the reel
+// posting. First run staggered 30s after the token-refresh ping so the two
+// don't fire together on boot.
+setTimeout(() => void pingCronRoute("/api/cron/attach-next-reel"), 90_000);
+const reelAttachTimer = setInterval(
+  () => void pingCronRoute("/api/cron/attach-next-reel"),
+  REEL_ATTACH_INTERVAL_MS
 );
 
 async function shutdown(signal: string) {
@@ -60,6 +73,7 @@ async function shutdown(signal: string) {
   clearInterval(heartbeatTimer);
   clearInterval(pollTimer);
   clearInterval(tokenRefreshTimer);
+  clearInterval(reelAttachTimer);
   await worker.close();
   process.exit(0);
 }

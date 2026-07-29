@@ -9,8 +9,9 @@ import { decryptToken } from "@/lib/meta/oauth";
  * Instagram sends no webhook when a new media is published, so we poll: for
  * every campaign awaiting the creator's next reel, find the earliest reel that
  * was posted after the campaign was created and attach the campaign to it.
- * Runs on a schedule (see vercel.json) — the campaign goes live within one
- * cron interval of the reel being posted.
+ * Triggered on a fixed interval by the always-on worker (see
+ * worker/dm-worker.ts and lib/ops/cron-ping.ts) — the campaign goes live
+ * within one interval of the reel being posted.
  */
 
 function isReel(media: InstagramMedia): boolean {
