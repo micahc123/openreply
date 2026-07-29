@@ -74,9 +74,9 @@ DATABASE_URL="postgresql://...proxy.rlwy.net.../railway" npm run db:migrate
    - `DATABASE_URL` and `REDIS_URL`: the public Railway URLs (`DATABASE_PUBLIC_URL` and `REDIS_PUBLIC_URL` from Railway).
    - `ENCRYPTION_KEY`: the exact same value as on the worker.
 3. Deploy. The build runs `prisma generate` before `next build`, so the Prisma client is generated even though it is gitignored.
-4. The daily token-refresh cron is wired up in `vercel.json`.
+4. `vercel.json` still lists two crons (token refresh, and binding a campaign to a creator's next reel), but they exist for the case where you run web on Vercel with no worker driving them yourself. In this repo's supported setup, the always-on Railway worker triggers both routes directly and `vercel.json` is inert.
 
-Note on crons: Vercel's free plan allows each cron to run at most once per day. The repo's crons are set to daily for that reason. The comment polling reconciler does not use a Vercel cron; it runs inside the Railway worker on its own interval, so the free plan is not a constraint there.
+Note on crons: both `/api/cron/refresh-tokens` and `/api/cron/attach-next-reel` are triggered by the Railway worker on its own interval (see `lib/ops/cron-ping.ts`), not by Vercel Cron, regardless of whether the web app itself is hosted on Vercel or Railway — the worker just makes an HTTP call to whatever `NEXTAUTH_URL` points at. This sidesteps Vercel's free-plan limit of one cron run per day, which is why `vercel.json` sets both to daily. Token refresh stays daily here too (tokens are only ever renewed within 10 days of a 60-day expiry, so daily has plenty of margin), but reel-attach runs every 5 minutes: Instagram sends no webhook when a reel is published, so this is what binds a waiting campaign to it, and on Vercel's daily cron a freshly posted reel could sit unbound for up to a day. Both routes are idempotent, so if you do run web on Vercel and leave `vercel.json`'s crons enabled too, the duplicate calls are harmless. The comment polling reconciler never used a Vercel cron in the first place; it always ran inside the Railway worker on its own interval.
 
 Optional custom domain: if you want `openreply.yoursite.com` instead of the Vercel URL, add it in Vercel under Domains and make it primary. Then update `NEXTAUTH_URL` and the two Meta URLs (Step 7 and Step 8 below) to the new domain, and update the worker's `NEXTAUTH_URL` too, or tracked links in DMs will point at the old domain.
 
@@ -88,7 +88,7 @@ Copy `.env.example` to `.env` for local work, or set these in Vercel and Railway
 | --- | --- |
 | `NEXTAUTH_URL` | Your public URL. Your Vercel domain in production, your tunnel URL locally. |
 | `NEXTAUTH_SECRET` | Random secret. `openssl rand -base64 32` |
-| `CRON_SECRET` | Random secret protecting the token-refresh cron. |
+| `CRON_SECRET` | Random secret protecting the cron routes (token refresh and reel-attach). Shared between the web app and the worker, since the worker is what calls them. |
 | `ENCRYPTION_KEY` | 32-byte hex. `openssl rand -hex 32`. Encrypts Instagram tokens. Identical across web and worker. |
 | `DATABASE_URL` | PostgreSQL connection string. Public Railway URL on Vercel; internal on the worker. |
 | `REDIS_URL` | Redis connection string. Must support blocking commands, so an HTTP-only Redis will not work with BullMQ. |
