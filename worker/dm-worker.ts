@@ -2,6 +2,10 @@ import { createDMWorker } from "@/lib/queue/dm-worker";
 import { recordWorkerHeartbeat } from "@/lib/ops/worker-health";
 import { reconcileComments } from "@/lib/polling/comment-reconciler";
 import { getPollIntervalMs } from "@/lib/ops/poll-config";
+import {
+  pingTokenRefresh,
+  TOKEN_REFRESH_INTERVAL_MS,
+} from "@/lib/ops/token-refresh-ping";
 import os from "node:os";
 
 const worker = createDMWorker();
@@ -42,10 +46,20 @@ async function poll() {
 setTimeout(() => void poll(), 10_000);
 const pollTimer = setInterval(() => void poll(), POLL_INTERVAL_MS);
 
+// Instagram long-lived tokens expire at ~60 days. The route is idempotent and
+// only acts on tokens within 10 days of expiry, so a daily sweep is enough.
+// First run is delayed 60s so the web service is up before the first call.
+setTimeout(() => void pingTokenRefresh(), 60_000);
+const tokenRefreshTimer = setInterval(
+  () => void pingTokenRefresh(),
+  TOKEN_REFRESH_INTERVAL_MS
+);
+
 async function shutdown(signal: string) {
   console.log(`[DM Worker] ${signal} received, closing worker`);
   clearInterval(heartbeatTimer);
   clearInterval(pollTimer);
+  clearInterval(tokenRefreshTimer);
   await worker.close();
   process.exit(0);
 }
