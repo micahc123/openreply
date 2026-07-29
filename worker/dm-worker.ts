@@ -1,16 +1,15 @@
 import { createDMWorker } from "@/lib/queue/dm-worker";
 import { recordWorkerHeartbeat } from "@/lib/ops/worker-health";
 import { reconcileComments } from "@/lib/polling/comment-reconciler";
+import { getPollIntervalMs } from "@/lib/ops/poll-config";
 import os from "node:os";
 
 const worker = createDMWorker();
 const startedAt = new Date().toISOString();
 const HEARTBEAT_INTERVAL_MS = 30_000;
-// Polling safety net for comments that webhooks miss. Runs in the worker because
-// it must fire every few minutes and Vercel's free crons only run once a day.
-const POLL_INTERVAL_MS = Number(
-  process.env.COMMENT_POLL_INTERVAL_MS ?? 5 * 60_000
-);
+// Comment polling. In Phase 1 this is the primary trigger, not a safety net —
+// see lib/ops/poll-config.ts.
+const POLL_INTERVAL_MS = getPollIntervalMs();
 
 console.log("[DM Worker] Started");
 
