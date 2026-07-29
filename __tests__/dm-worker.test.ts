@@ -17,7 +17,6 @@ const {
     },
     dmLog: {
       findUnique: vi.fn(),
-      create: vi.fn(),
       upsert: vi.fn(),
       update: vi.fn(),
     },
@@ -174,7 +173,6 @@ beforeEach(() => {
 
   mockPrisma.automation.findMany.mockResolvedValue([mockAutomation]);
   mockPrisma.dmLog.findUnique.mockResolvedValue(null);
-  mockPrisma.dmLog.create.mockResolvedValue({});
   mockPrisma.dmLog.upsert.mockResolvedValue({});
   mockPrisma.dmLog.update.mockResolvedValue({});
   mockPrisma.instagramAccount.findUnique.mockResolvedValue({
@@ -251,13 +249,23 @@ describe("DM Worker — Full Pipeline", () => {
     );
     expect(mockReleaseWorkspaceDMReservation).not.toHaveBeenCalled();
     // No prior DmLog row existed (findUnique resolved null), so the worker
-    // creates the row (PENDING) rather than upserting it...
-    expect(mockPrisma.dmLog.create).toHaveBeenCalledWith({
-      data: expect.objectContaining({
+    // upserts the row into existence as PENDING. This must be an upsert (not
+    // a plain create) so a concurrent duplicate job racing the same write
+    // can't throw on the automationId+commentId unique constraint — see the
+    // dedicated race test below.
+    expect(mockPrisma.dmLog.upsert).toHaveBeenCalledWith({
+      where: {
+        automationId_commentId: {
+          automationId: "auto_789",
+          commentId: "comment_555",
+        },
+      },
+      create: expect.objectContaining({
         automationId: "auto_789",
         commentId: "comment_555",
         status: "PENDING",
       }),
+      update: {},
     });
     // ...then updates that same row to SENT once the DM goes out.
     expect(mockPrisma.dmLog.update).toHaveBeenCalledWith({
@@ -269,6 +277,33 @@ describe("DM Worker — Full Pipeline", () => {
       },
       data: expect.objectContaining({ status: "SENT" }),
     });
+  });
+
+  it("does not clobber a row created concurrently by another worker", async () => {
+    // The polling reconciler enqueues without a deterministic jobId, so two
+    // jobs for the same comment can both run processComment concurrently and
+    // both observe findUnique -> null before either write lands. The ensure-
+    // log-exists step must therefore be a single atomic upsert whose update
+    // branch is empty: whichever job's write actually creates the row wins,
+    // and the other must leave it untouched rather than resetting it back to
+    // PENDING (which would be a race-dependent clobber of whatever the first
+    // job already progressed the row to, e.g. SENT).
+    mockPrisma.dmLog.findUnique.mockResolvedValue(null);
+
+    const processor = getProcessor();
+    await processor(createMockJob());
+
+    expect(mockPrisma.dmLog.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          automationId_commentId: {
+            automationId: "auto_789",
+            commentId: "comment_555",
+          },
+        },
+        update: {},
+      })
+    );
   });
 
   it("should skip when no automations match the media", async () => {

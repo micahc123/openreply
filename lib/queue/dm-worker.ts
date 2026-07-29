@@ -174,9 +174,25 @@ async function processComment(job: Job<ProcessCommentJob>): Promise<void> {
     // Ensure a log row exists before the public reply leg (which updates it).
     // Only (re)set PENDING when the DM will actually be attempted, so a prior
     // SENT is never clobbered while we come back just to retry the public reply.
+    //
+    // This is an upsert, not a create, because findUnique-then-create is a
+    // check-then-act race: the polling reconciler deliberately enqueues
+    // without a deterministic jobId (duplicate jobs for the same comment are
+    // expected), so two jobs can both observe !existingLog and both attempt
+    // to materialize this row concurrently under worker concurrency. A plain
+    // create would have the loser throw on
+    // @@unique([automationId, commentId]). The update branch is intentionally
+    // empty: if another job already created the row between our findUnique
+    // and this write, we must leave it exactly as-is rather than resetting it
+    // to PENDING — that's the same anti-clobber guarantee commit 1059afd
+    // introduced (a prior SENT/etc. must never be stomped by a redundant
+    // "ensure it exists" write).
     if (!existingLog) {
-      await prisma.dmLog.create({
-        data: {
+      await prisma.dmLog.upsert({
+        where: {
+          automationId_commentId: { automationId: automation.id, commentId },
+        },
+        create: {
           workspaceId: automation.workspaceId,
           automationId: automation.id,
           instagramAccountId: automation.instagramAccountId,
@@ -188,6 +204,7 @@ async function processComment(job: Job<ProcessCommentJob>): Promise<void> {
           status: "PENDING",
           attempts: job.attemptsMade + 1,
         },
+        update: {},
       });
     } else if (needsDm) {
       await prisma.dmLog.update({
