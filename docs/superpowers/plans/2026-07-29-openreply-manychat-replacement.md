@@ -511,7 +511,9 @@ These steps happen in a browser and require account access. An agent cannot comp
 - [ ] Create a new Railway project named `openreply`.
 - [ ] Add a PostgreSQL database. Copy its `DATABASE_URL`.
 - [ ] Add a Redis database. Copy its `REDIS_URL`.
-- [ ] Add a service from the GitHub repo `micahc123/openreply`. Name it `web`. Start command: `npm run start`. Build command: `npm run build`.
+- [ ] Add a service from the GitHub repo `micahc123/openreply`. Name it `web`. Start command: `npm run start`. Build command: **`npm run railway-build`**.
+
+  Not `npm run build`. Plain `build` runs `prisma generate && next build` and does **not** apply migrations — upstream relies on `vercel-build` for that, which Railway never invokes. With plain `build`, the initial manual `prisma migrate deploy` below still works, but any later upstream merge carrying a migration would deploy against a stale schema and fail at runtime rather than at build time.
 - [ ] Add a second service from the same repo. Name it `worker`. Start command: `npm run worker`. **No public domain.**
 - [ ] Generate a public domain for `web`. Record it — this value is `NEXTAUTH_URL`, the Meta OAuth redirect base, and the webhook callback base.
 - [ ] Set these as **shared variables** at the project level so `web` and `worker` receive identical values. `ENCRYPTION_KEY` mismatch between the two services makes every send fail at decrypt time, and the symptom presents as "no DMs arriving" rather than as a key error.
