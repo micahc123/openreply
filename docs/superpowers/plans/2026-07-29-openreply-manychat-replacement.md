@@ -511,9 +511,13 @@ These steps happen in a browser and require account access. An agent cannot comp
 - [ ] Create a new Railway project named `openreply`.
 - [ ] Add a PostgreSQL database. Copy its `DATABASE_URL`.
 - [ ] Add a Redis database. Copy its `REDIS_URL`.
-- [ ] Add a service from the GitHub repo `micahc123/openreply`. Name it `web`. Start command: `npm run start`. Build command: **`npm run railway-build`**.
+- [ ] Add a service from the GitHub repo `micahc123/openreply`. Name it `web`. Build command: `npm run build`. Start command: `npm run start`. **Pre-deploy command: `npx prisma migrate deploy`.**
 
-  Not `npm run build`. Plain `build` runs `prisma generate && next build` and does **not** apply migrations — upstream relies on `vercel-build` for that, which Railway never invokes. With plain `build`, the initial manual `prisma migrate deploy` below still works, but any later upstream merge carrying a migration would deploy against a stale schema and fail at runtime rather than at build time.
+  The pre-deploy command is how migrations get applied on Railway, and it is not optional. Plain `build` runs `prisma generate && next build` and does not migrate; upstream gets migrations from `vercel-build`, which Railway never invokes. Without the pre-deploy step, any upstream merge carrying a migration deploys against a stale schema and fails at runtime.
+
+  Migrations cannot go in the build command. Railway's private network (`*.railway.internal`) only exists at runtime, so `prisma migrate deploy` during build fails with `P1001: Can't reach database server`. Pre-deploy runs with runtime networking, before the new container takes traffic — which is exactly the right moment.
+
+- [ ] **Set the deploy branch explicitly.** `railway add --branch` does not persist it: the service ends up with a repo and no branch, and Railway silently falls back to the repo's default branch. Confirm in the service's settings that the branch is the one you intend.
 - [ ] Add a second service from the same repo. Name it `worker`. Start command: `npm run worker`. **No public domain.**
 - [ ] Generate a public domain for `web`. Record it — this value is `NEXTAUTH_URL`, the Meta OAuth redirect base, and the webhook callback base.
 - [ ] Set these as **shared variables** at the project level so `web` and `worker` receive identical values. `ENCRYPTION_KEY` mismatch between the two services makes every send fail at decrypt time, and the symptom presents as "no DMs arriving" rather than as a key error.
