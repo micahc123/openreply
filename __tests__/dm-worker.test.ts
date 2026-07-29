@@ -17,6 +17,7 @@ const {
     },
     dmLog: {
       findUnique: vi.fn(),
+      create: vi.fn(),
       upsert: vi.fn(),
       update: vi.fn(),
     },
@@ -173,6 +174,7 @@ beforeEach(() => {
 
   mockPrisma.automation.findMany.mockResolvedValue([mockAutomation]);
   mockPrisma.dmLog.findUnique.mockResolvedValue(null);
+  mockPrisma.dmLog.create.mockResolvedValue({});
   mockPrisma.dmLog.upsert.mockResolvedValue({});
   mockPrisma.dmLog.update.mockResolvedValue({});
   mockPrisma.instagramAccount.findUnique.mockResolvedValue({
@@ -248,6 +250,16 @@ describe("DM Worker — Full Pipeline", () => {
       "Hey commenter_user! Here is the link: https://example.com"
     );
     expect(mockReleaseWorkspaceDMReservation).not.toHaveBeenCalled();
+    // No prior DmLog row existed (findUnique resolved null), so the worker
+    // creates the row (PENDING) rather than upserting it...
+    expect(mockPrisma.dmLog.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        automationId: "auto_789",
+        commentId: "comment_555",
+        status: "PENDING",
+      }),
+    });
+    // ...then updates that same row to SENT once the DM goes out.
     expect(mockPrisma.dmLog.update).toHaveBeenCalledWith({
       where: {
         automationId_commentId: {
@@ -340,7 +352,7 @@ describe("DM Worker — Full Pipeline", () => {
       }),
       expect.objectContaining({
         delay: 1800000,
-        jobId: "comment:ig_456:comment_555:retry:1",
+        jobId: "comment_ig_456_comment_555_retry_1",
       })
     );
   });
