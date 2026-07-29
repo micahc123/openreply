@@ -134,3 +134,17 @@ describe("incrementDMCounter", () => {
     expect(count).toBe(51);
   });
 });
+
+describe("rate limit ceiling", () => {
+  // Deliberate value pin. Every other assertion in this file derives from
+  // RATE_LIMIT_MAX and so survives any change to it. This test exists to fail
+  // loudly if an upstream merge restores Meta's raw documented 750, which
+  // leaves no headroom for throttling or for other calls sharing the bucket.
+  it("keeps headroom under Meta's documented 750/hour ceiling", () => {
+    expect(RATE_LIMIT_MAX).toBe(600);
+  });
+
+  it("still allows well above real daily volume", () => {
+    expect(RATE_LIMIT_MAX * 24).toBeGreaterThan(10_000);
+  });
+});
