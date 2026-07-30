@@ -280,8 +280,16 @@ async function recordSweep(
   workspaceId: string,
   stat: SweepStat
 ): Promise<void> {
-  // Only log when something happened or something went wrong.
-  if (stat.enqueued === 0 && stat.errors.length === 0) return;
+  // Normally only record eventful sweeps, to keep this table from growing by
+  // one row per campaign per poll (1440/day at a 60s interval).
+  //
+  // RECONCILE_VERBOSE=1 records every sweep instead. Needed when diagnosing
+  // "I commented and nothing happened": container stdout is not always
+  // delivered to the platform's log API, but these rows are queryable
+  // straight from Postgres, so this is the reliable channel. Turn it off once
+  // the question is answered.
+  const verbose = process.env.RECONCILE_VERBOSE === "1";
+  if (!verbose && stat.enqueued === 0 && stat.errors.length === 0) return;
 
   await prisma.operationalEvent
     .create({
@@ -289,7 +297,11 @@ async function recordSweep(
         workspaceId,
         source: "SYSTEM",
         level: stat.errors.length > 0 ? "WARNING" : "INFO",
-        message: `Comment sweep "${stat.campaign}" [${stat.keywords}]: ${stat.enqueued} enqueued, ${stat.matched} matched, ${stat.alreadyReplied} already replied`,
+        message:
+          `Comment sweep "${stat.campaign}" [${stat.keywords}]: ` +
+          `${stat.mediaScanned} media, ${stat.commentsSeen} comments seen, ` +
+          `${stat.ownComments} own, ${stat.matched} matched, ` +
+          `${stat.alreadyReplied} already replied, ${stat.enqueued} enqueued`,
         payload: { ...stat },
       },
     })
