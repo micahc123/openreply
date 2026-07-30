@@ -48,10 +48,30 @@ const RECENT_MEDIA_LIMIT = 10;
 interface SweepStat {
   campaign: string;
   keywords: string;
+  /** Media the sweep looked at. 0 means the campaign covers no posts. */
+  mediaScanned: number;
+  /** Comments the Graph API returned inside the lookback window. */
+  commentsSeen: number;
+  /** Comments authored by the connected account itself, which can never be DM'd. */
+  ownComments: number;
   matched: number;
   alreadyReplied: number;
   enqueued: number;
   errors: string[];
+}
+
+function emptyStat(campaign: string, keywords: string): SweepStat {
+  return {
+    campaign,
+    keywords,
+    mediaScanned: 0,
+    commentsSeen: 0,
+    ownComments: 0,
+    matched: 0,
+    alreadyReplied: 0,
+    enqueued: 0,
+    errors: [],
+  };
 }
 
 function errMessage(error: unknown): string {
@@ -91,15 +111,22 @@ export async function reconcileComments(): Promise<void> {
   for (const automation of automations) {
     const stat = await sweepCampaign(automation, sinceMs, tokenCache).catch(
       (error): SweepStat => ({
-        campaign: automation.name,
-        keywords: automation.keywords.join(","),
-        matched: 0,
-        alreadyReplied: 0,
-        enqueued: 0,
+        ...emptyStat(automation.name, automation.keywords.join(",")),
         errors: [errMessage(error)],
       })
     );
     await recordSweep(automation.workspaceId, stat);
+
+    // Always log the counts, even on a quiet sweep. Without this, a sweep that
+    // is working but matching nothing is indistinguishable from one that is
+    // silently broken — both produce no output at all, which makes "I commented
+    // and nothing happened" undiagnosable.
+    console.log(
+      `[reconcile] "${stat.campaign}" [${stat.keywords}] media=${stat.mediaScanned} ` +
+        `comments=${stat.commentsSeen} own=${stat.ownComments} matched=${stat.matched} ` +
+        `alreadyReplied=${stat.alreadyReplied} enqueued=${stat.enqueued}` +
+        (stat.errors.length ? ` errors=${JSON.stringify(stat.errors)}` : "")
+    );
   }
 }
 
@@ -124,16 +151,10 @@ async function sweepCampaign(
   tokenCache: Map<string, string | null>
 ): Promise<SweepStat> {
   const account = automation.instagramAccount;
-  const stat: SweepStat = {
-    campaign: automation.name,
-    keywords: automation.matchAnyWord
-      ? "(any word)"
-      : automation.keywords.join(","),
-    matched: 0,
-    alreadyReplied: 0,
-    enqueued: 0,
-    errors: [],
-  };
+  const stat = emptyStat(
+    automation.name,
+    automation.matchAnyWord ? "(any word)" : automation.keywords.join(",")
+  );
 
   // Decrypt the account token once per sweep.
   let accessToken = tokenCache.get(account.id);
@@ -163,6 +184,7 @@ async function sweepCampaign(
       stat.errors.push(`Media list: ${errMessage(error)}`);
     }
   }
+  stat.mediaScanned = mediaIds.length;
   if (mediaIds.length === 0) return stat;
 
   const queue = getDMQueue();
@@ -175,12 +197,20 @@ async function sweepCampaign(
       stat.errors.push(`Comments ${mediaId}: ${errMessage(error)}`);
       continue;
     }
+    stat.commentsSeen += comments.length;
 
     // Keep only comments that (a) aren't the account's own, (b) match the
     // keyword, and (c) have no reply from the account owner yet.
     const needsAction = comments.filter((c) => {
       const authorId = c.from?.id;
-      if (!authorId || authorId === account.instagramId) return false;
+      if (!authorId) return false;
+      // The account cannot private-reply to itself; Meta rejects it. Counted so
+      // "I tested by commenting from my own account" is visible in the logs
+      // instead of looking like the sweep saw nothing at all.
+      if (authorId === account.instagramId) {
+        stat.ownComments += 1;
+        return false;
+      }
 
       const matched = automation.matchAnyWord
         ? true
