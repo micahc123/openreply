@@ -29,6 +29,9 @@ interface Campaign {
   publicReplyEnabled: boolean;
   publicReplyMessage: string | null;
   publicReplyMessages: string[];
+  requireFollow: boolean;
+  followPromptMessage: string | null;
+  followPromptButtonLabel: string | null;
   isActive: boolean;
   wholeWordMatch: boolean;
   instagramAccountId: string;
@@ -44,6 +47,7 @@ interface Campaign {
   trackedLinks: Array<{
     id: string;
     slug: string;
+    label: string | null;
     destinationUrl: string;
     trackedUrl: string;
     _count: { clicks: number };
@@ -75,6 +79,7 @@ export default function CampaignsPage() {
     postUrl: string | null;
   } | null>(null);
   const [menuOpenId, setMenuOpenId] = useState<string | null>(null);
+  const [copiedId, setCopiedId] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<"all" | "active" | "paused">(
     "all"
@@ -207,6 +212,21 @@ export default function CampaignsPage() {
     }
   }
 
+  async function copyReelUrl(auto: Campaign) {
+    setMenuOpenId(null);
+    if (!auto.postUrl) return;
+    try {
+      await navigator.clipboard.writeText(auto.postUrl);
+      setCopiedId(auto.id);
+      window.setTimeout(
+        () => setCopiedId((cur) => (cur === auto.id ? null : cur)),
+        1500
+      );
+    } catch (err) {
+      console.error("Failed to copy reel URL:", err);
+    }
+  }
+
   async function deleteAutomation(id: string) {
     if (!confirm("Delete this campaign? This cannot be undone.")) return;
     try {
@@ -240,6 +260,11 @@ export default function CampaignsPage() {
           publicReplyEnabled: auto.publicReplyEnabled,
           publicReplyMessages: auto.publicReplyMessages,
           trackedDestinationUrl: auto.trackedLinks[0]?.destinationUrl ?? "",
+          secondaryDestinationUrl: auto.trackedLinks[1]?.destinationUrl ?? "",
+          secondaryButtonLabel: auto.trackedLinks[1]?.label ?? "Open link",
+          requireFollow: auto.requireFollow,
+          followPromptMessage: auto.followPromptMessage,
+          followPromptButtonLabel: auto.followPromptButtonLabel,
           wholeWordMatch: auto.wholeWordMatch,
           isActive: false,
         }),
@@ -433,6 +458,16 @@ export default function CampaignsPage() {
                       Waiting for next reel
                     </span>
                   )}
+                  {auto.requireFollow && (
+                    <span className="shrink-0 rounded-full bg-accent/10 px-2 py-0.5 text-xs font-medium text-accent">
+                      Follow gate
+                    </span>
+                  )}
+                  {auto.trackedLinks.length >= 2 && (
+                    <span className="shrink-0 rounded-full bg-accent/10 px-2 py-0.5 text-xs font-medium text-accent">
+                      2 links
+                    </span>
+                  )}
                 </div>
 
                 {/* Keywords */}
@@ -488,6 +523,15 @@ export default function CampaignsPage() {
                 className="flex items-center gap-2"
                 onClick={(e) => e.stopPropagation()}
               >
+                {/* Copy reel URL */}
+                {auto.postUrl && (
+                  <button
+                    onClick={() => void copyReelUrl(auto)}
+                    className="shrink-0 rounded-full border border-border px-2.5 py-1 text-xs font-medium text-muted transition-colors hover:border-border-hover hover:text-foreground"
+                  >
+                    {copiedId === auto.id ? "Copied!" : "Copy URL"}
+                  </button>
+                )}
                 {/* Toggle */}
                 <button
                   onClick={() => toggleActive(auto.id, auto.isActive)}

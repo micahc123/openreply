@@ -59,6 +59,9 @@ export interface InstagramUser {
   username: string;
   name?: string;
   profile_picture_url?: string;
+  // Current follower total. Point-in-time only — Instagram exposes no history
+  // for this field, so long-run trends come from FollowerSnapshot instead.
+  followers_count?: number;
 }
 
 export interface InstagramComment {
@@ -203,17 +206,102 @@ export async function sendPrivateReplyWithButton(
 }
 
 /**
- * Send a private reply to a comment as a button template with a web_url button
- * — the reveal message plus a tappable link button (for campaigns with no
- * opening DM, where the reveal is delivered straight to the comment).
+ * Send a direct message (to a user's IGSID) as a button template with a single
+ * postback button. Used to re-prompt a user during follow-gating, so tapping
+ * the button fires another `messaging_postbacks` webhook carrying `payload`.
+ */
+export async function sendDirectMessageWithButton(
+  accessToken: string,
+  instagramAccountId: string,
+  userId: string,
+  text: string,
+  buttonTitle: string,
+  payload: string
+): Promise<{ recipient_id: string; message_id: string }> {
+  const response = await fetch(
+    `${instagramGraphBase()}/${instagramAccountId}/messages`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${accessToken}`,
+      },
+      body: JSON.stringify({
+        recipient: { id: userId },
+        message: {
+          attachment: {
+            type: "template",
+            payload: {
+              template_type: "button",
+              text: text.slice(0, 640),
+              buttons: [
+                { type: "postback", title: buttonTitle.slice(0, 20), payload },
+              ],
+            },
+          },
+        },
+      }),
+    }
+  );
+
+  return handleResponse(response);
+}
+
+/**
+ * Check whether a user (by their IGSID) follows the business account, via the
+ * Instagram Messaging profile API. Available for users in an active
+ * conversation (e.g. after a private reply or a button tap). Returns true or
+ * false, or `null` when Meta does not return the field — so callers can decide
+ * how to treat the unverifiable case.
+ */
+export async function getUserFollowStatus(
+  accessToken: string,
+  recipientId: string
+): Promise<boolean | null> {
+  const url = new URL(`${instagramGraphBase()}/${recipientId}`);
+  url.searchParams.set("fields", "is_user_follow_business");
+
+  try {
+    const response = await fetch(url.toString(), {
+      method: "GET",
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    if (!response.ok) return null;
+    const data = await response.json();
+    return typeof data?.is_user_follow_business === "boolean"
+      ? data.is_user_follow_business
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * A tappable web_url button in a DM button template. Instagram's button
+ * template supports up to 3 buttons; titles are capped at 20 chars by Meta.
+ */
+export interface LinkButton {
+  title: string;
+  url: string;
+}
+
+function toWebUrlButtons(buttons: LinkButton[]) {
+  return buttons
+    .slice(0, 3)
+    .map((b) => ({ type: "web_url", url: b.url, title: b.title.slice(0, 20) }));
+}
+
+/**
+ * Send a private reply to a comment as a button template with up to 3 web_url
+ * buttons — the reveal message plus tappable link buttons (for campaigns with
+ * no opening DM, where the reveal is delivered straight to the comment).
  */
 export async function sendPrivateReplyWithLinkButton(
   accessToken: string,
   instagramAccountId: string,
   commentId: string,
   text: string,
-  buttonTitle: string,
-  url: string
+  buttons: LinkButton[]
 ): Promise<{ recipient_id: string; message_id: string }> {
   const response = await fetch(
     `${instagramGraphBase()}/${instagramAccountId}/messages`,
@@ -231,7 +319,7 @@ export async function sendPrivateReplyWithLinkButton(
             payload: {
               template_type: "button",
               text: text.slice(0, 640),
-              buttons: [{ type: "web_url", url, title: buttonTitle.slice(0, 20) }],
+              buttons: toWebUrlButtons(buttons),
             },
           },
         },
@@ -271,16 +359,15 @@ export async function sendDirectMessage(
 }
 
 /**
- * Send a direct message as a button template with a single web_url button —
- * the reveal message plus a tappable link button (cleaner than an inline URL).
+ * Send a direct message as a button template with up to 3 web_url buttons —
+ * the reveal message plus tappable link buttons (cleaner than inline URLs).
  */
 export async function sendDirectMessageWithLinkButton(
   accessToken: string,
   instagramAccountId: string,
   userId: string,
   text: string,
-  buttonTitle: string,
-  url: string
+  buttons: LinkButton[]
 ): Promise<{ recipient_id: string; message_id: string }> {
   const response = await fetch(
     `${instagramGraphBase()}/${instagramAccountId}/messages`,
@@ -298,7 +385,7 @@ export async function sendDirectMessageWithLinkButton(
             payload: {
               template_type: "button",
               text: text.slice(0, 640),
-              buttons: [{ type: "web_url", url, title: buttonTitle.slice(0, 20) }],
+              buttons: toWebUrlButtons(buttons),
             },
           },
         },
@@ -458,7 +545,7 @@ export async function getUserInfo(accessToken: string): Promise<InstagramUser> {
   const url = new URL(`${instagramGraphBase()}/me`);
   url.searchParams.set(
     "fields",
-    "id,user_id,username,name,profile_picture_url"
+    "id,user_id,username,name,profile_picture_url,followers_count"
   );
   url.searchParams.set("access_token", accessToken);
 
@@ -546,6 +633,75 @@ export async function getMediaInsights(
       entry.values?.[0]?.value ?? 0;
   }
   return result;
+}
+
+/** One day of net follower change, as reported by account insights. */
+export interface FollowerCountPoint {
+  /** ISO date (YYYY-MM-DD) the change is attributed to. */
+  date: string;
+  /** Net followers gained (or lost, if negative) that day. */
+  delta: number;
+}
+
+// Instagram only retains ~30 days of account insights, and rejects windows
+// wider than 30 days outright. Stay just inside the limit.
+const FOLLOWER_INSIGHT_MAX_DAYS = 30;
+
+/**
+ * Fetch the daily net follower change for an account.
+ *
+ * Requires `instagram_business_manage_insights`. Note this metric is *not*
+ * universally available: Instagram omits it for accounts under 100 followers
+ * and it is unsupported on some account types. Callers must treat `null` as
+ * "no series available" rather than an error — see the backfill in
+ * `lib/reports/follower-history.ts`.
+ *
+ * Returns daily deltas, not running totals. Reconstruct absolute counts by
+ * anchoring on a known `followers_count` and walking backwards.
+ */
+export async function getFollowerCountSeries(
+  accessToken: string,
+  instagramAccountId: string,
+  days: number = FOLLOWER_INSIGHT_MAX_DAYS
+): Promise<FollowerCountPoint[] | null> {
+  const span = Math.min(Math.max(days, 1), FOLLOWER_INSIGHT_MAX_DAYS);
+  const until = Math.floor(Date.now() / 1000);
+  const since = until - (span - 1) * 86_400;
+
+  const url = new URL(`${instagramGraphBase()}/${instagramAccountId}/insights`);
+  url.searchParams.set("metric", "follower_count");
+  url.searchParams.set("period", "day");
+  url.searchParams.set("since", String(since));
+  url.searchParams.set("until", String(until));
+  url.searchParams.set("access_token", accessToken);
+
+  try {
+    const response = await fetch(url.toString());
+    const data = await handleResponse<{
+      data: Array<{
+        name: string;
+        values: Array<{ value: number; end_time?: string }>;
+      }>;
+    }>(response);
+
+    const metric = data.data.find((d) => d.name === "follower_count");
+    if (!metric?.values?.length) return null;
+
+    return metric.values.map((v) => ({
+      date: (v.end_time ?? new Date().toISOString()).slice(0, 10),
+      delta: v.value ?? 0,
+    }));
+  } catch (err) {
+    // A missing permission is a real signal the caller may want to surface;
+    // anything else here means the metric is simply unavailable for this
+    // account, which is not worth failing the whole dashboard over.
+    if (err instanceof PermissionError) throw err;
+    console.warn(
+      "[Instagram] follower_count insights unavailable:",
+      err instanceof Error ? err.message : err
+    );
+    return null;
+  }
 }
 
 export async function getLongLivedToken(

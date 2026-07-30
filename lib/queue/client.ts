@@ -41,6 +41,7 @@ export interface ProcessPostbackJob {
   userId: string;
   payload: string;
   mid?: string;
+  fallback?: boolean;
 }
 
 export type DmQueueJob = ProcessCommentJob | ProcessPostbackJob;

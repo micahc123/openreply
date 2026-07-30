@@ -5,7 +5,11 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { verifyWebhookSignature, parseCommentEvents } from "../lib/meta/webhook";
+import {
+  verifyWebhookSignature,
+  parseCommentEvents,
+  parseReadEvents,
+} from "../lib/meta/webhook";
 import { createHmac } from "crypto";
 
 // Mock the environment variable
@@ -283,5 +287,55 @@ describe("parseCommentEvents", () => {
 
     const events = parseCommentEvents(payload);
     expect(events).toHaveLength(0);
+  });
+});
+
+describe("parseReadEvents", () => {
+  it("should parse Instagram DM read receipts", () => {
+    const payload = {
+      object: "instagram",
+      entry: [
+        {
+          id: "ig_456",
+          time: 1234567890,
+          messaging: [
+            {
+              sender: { id: "commenter_999" },
+              recipient: { id: "ig_456" },
+              read: { watermark: 1770000000000 },
+            },
+          ],
+        },
+      ],
+    };
+
+    expect(parseReadEvents(payload)).toEqual([
+      {
+        instagramAccountId: "ig_456",
+        userId: "commenter_999",
+        watermark: 1770000000000,
+      },
+    ]);
+  });
+
+  it("should ignore read receipts from the connected account itself", () => {
+    const payload = {
+      object: "instagram",
+      entry: [
+        {
+          id: "ig_456",
+          time: 1234567890,
+          messaging: [
+            {
+              sender: { id: "ig_456" },
+              recipient: { id: "ig_456" },
+              read: { watermark: 1770000000000 },
+            },
+          ],
+        },
+      ],
+    };
+
+    expect(parseReadEvents(payload)).toHaveLength(0);
   });
 });

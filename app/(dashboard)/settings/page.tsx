@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import type { AccountOption } from "@/components/account-select";
+import { InstagramConnectNotice } from "@/components/instagram-connect-notice";
 
 interface SettingsData {
   workspace: {
@@ -128,6 +129,13 @@ export default function SettingsPage() {
 
   return (
     <div className="max-w-2xl mx-auto space-y-8">
+      {/* Surfaces the ?instagram= code the OAuth routes redirect back with.
+          Needs a Suspense boundary: useSearchParams in a prerendered client
+          page fails the production build without one. */}
+      <Suspense fallback={null}>
+        <InstagramConnectNotice />
+      </Suspense>
+
       <section className="panel rounded p-6">
         <h2 className="text-base font-semibold mb-6">Instagram Connection</h2>
 

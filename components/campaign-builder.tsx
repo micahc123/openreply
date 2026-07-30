@@ -41,12 +41,17 @@ interface LoadedCampaign {
   openingDmMessage: string | null;
   openingDmButtonLabel: string | null;
   linkButtonLabel: string | null;
+  requireFollow: boolean;
+  followPromptMessage: string | null;
+  followPromptButtonLabel: string | null;
+  followUpEnabled: boolean;
+  followUpMessage: string | null;
   publicReplyEnabled: boolean;
   publicReplyMessage: string | null;
   publicReplyMessages: string[];
   isActive: boolean;
   instagramAccountId: string;
-  trackedLinks?: { destinationUrl: string }[];
+  trackedLinks?: { destinationUrl: string; label?: string | null }[];
 }
 
 interface CampaignBuilderProps {
@@ -162,6 +167,15 @@ export default function CampaignBuilder({ mode, campaignId }: CampaignBuilderPro
   const [linkOpen, setLinkOpen] = useState(false);
   const [trackedDestinationUrl, setTrackedDestinationUrl] = useState("");
   const [linkButtonLabel, setLinkButtonLabel] = useState("Open link");
+  const [secondLinkOpen, setSecondLinkOpen] = useState(false);
+  const [secondaryDestinationUrl, setSecondaryDestinationUrl] = useState("");
+  const [secondaryButtonLabel, setSecondaryButtonLabel] = useState("Open link");
+  const [requireFollow, setRequireFollow] = useState(false);
+  const [followPromptMessage, setFollowPromptMessage] = useState("");
+  const [followPromptButtonLabel, setFollowPromptButtonLabel] =
+    useState("i'm following");
+  const [followUpEnabled, setFollowUpEnabled] = useState(false);
+  const [followUpMessage, setFollowUpMessage] = useState("");
 
   const [previewTab, setPreviewTab] = useState<PreviewTab>("dm");
 
@@ -257,6 +271,17 @@ export default function CampaignBuilder({ mode, campaignId }: CampaignBuilderPro
         const link = c.trackedLinks?.[0]?.destinationUrl ?? "";
         setTrackedDestinationUrl(link);
         setLinkOpen(Boolean(link));
+        const secondLink = c.trackedLinks?.[1];
+        setSecondaryDestinationUrl(secondLink?.destinationUrl ?? "");
+        setSecondaryButtonLabel(secondLink?.label ?? "Open link");
+        setSecondLinkOpen(Boolean(secondLink?.destinationUrl));
+        setRequireFollow(c.requireFollow ?? false);
+        setFollowPromptMessage(c.followPromptMessage ?? "");
+        setFollowPromptButtonLabel(
+          c.followPromptButtonLabel ?? "i'm following"
+        );
+        setFollowUpEnabled(c.followUpEnabled ?? false);
+        setFollowUpMessage(c.followUpMessage ?? "");
       })
       .catch(() => setNotFound(true))
       .finally(() => setLoading(false));
@@ -385,6 +410,15 @@ export default function CampaignBuilder({ mode, campaignId }: CampaignBuilderPro
         : [],
       trackedDestinationUrl: trackedDestinationUrl.trim() || "",
       linkButtonLabel: linkButtonLabel.trim() || "Open link",
+      secondaryDestinationUrl: secondaryDestinationUrl.trim() || "",
+      secondaryButtonLabel: secondaryButtonLabel.trim() || "Open link",
+      requireFollow,
+      followPromptMessage: requireFollow ? followPromptMessage.trim() : "",
+      followPromptButtonLabel: requireFollow
+        ? followPromptButtonLabel.trim() || "i'm following"
+        : "",
+      followUpEnabled,
+      followUpMessage: followUpEnabled ? followUpMessage.trim() : "",
       isActive: activeValue,
     };
 
@@ -766,6 +800,41 @@ export default function CampaignBuilder({ mode, campaignId }: CampaignBuilderPro
               </div>
             )}
           </div>
+          <div className="mt-3 rounded-lg border border-border p-3">
+            <div className="flex items-center justify-between">
+              <span className="text-sm text-foreground">
+                a follow requirement first
+              </span>
+              <Toggle
+                on={requireFollow}
+                onToggle={() => setRequireFollow(!requireFollow)}
+              />
+            </div>
+            {requireFollow && (
+              <div className="mt-3 space-y-2">
+                <textarea
+                  value={followPromptMessage}
+                  onChange={(e) => setFollowPromptMessage(e.target.value)}
+                  placeholder="quick favor before i send your link. i don't make any money from this, it's free. if you want to support me, just don't unfollow after, and star the repo on github if it helps you. tap the button once you're following and i'll send it over"
+                  rows={3}
+                  className="w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-foreground placeholder:text-zinc-500 focus:border-accent/40 focus:outline-none resize-none"
+                  maxLength={1000}
+                />
+                <input
+                  value={followPromptButtonLabel}
+                  onChange={(e) => setFollowPromptButtonLabel(e.target.value)}
+                  placeholder="i'm following"
+                  className="w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-foreground placeholder:text-zinc-500 focus:border-accent/40 focus:outline-none"
+                  maxLength={20}
+                />
+                <p className="text-xs text-muted">
+                  We send the link only after they tap the button and Instagram
+                  confirms the follow. If it can&apos;t be verified, we send it
+                  anyway.
+                </p>
+              </div>
+            )}
+          </div>
         </Section>
 
         <Section title="And then, they will get">
@@ -795,6 +864,31 @@ export default function CampaignBuilder({ mode, campaignId }: CampaignBuilderPro
                   maxLength={20}
                   className="w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-foreground placeholder:text-zinc-500 focus:border-accent/40 focus:outline-none"
                 />
+                {secondLinkOpen ? (
+                  <div className="space-y-2 border-t border-border pt-2">
+                    <input
+                      value={secondaryDestinationUrl}
+                      onChange={(e) => setSecondaryDestinationUrl(e.target.value)}
+                      placeholder="https://yourlink.com/second"
+                      className="w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-foreground placeholder:text-zinc-500 focus:border-accent/40 focus:outline-none"
+                    />
+                    <input
+                      value={secondaryButtonLabel}
+                      onChange={(e) => setSecondaryButtonLabel(e.target.value)}
+                      placeholder="Second button label"
+                      maxLength={20}
+                      className="w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-foreground placeholder:text-zinc-500 focus:border-accent/40 focus:outline-none"
+                    />
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => setSecondLinkOpen(true)}
+                    className="w-full rounded-lg border border-border py-2 text-sm text-muted hover:text-foreground"
+                  >
+                    + Add A Second Link
+                  </button>
+                )}
               </div>
             ) : (
               <button
@@ -808,6 +902,33 @@ export default function CampaignBuilder({ mode, campaignId }: CampaignBuilderPro
             <p className="text-xs text-muted">
               {"{link}"} inserts the tracked link; {"{username}"} personalizes.
             </p>
+          </div>
+          <div className="mt-3 rounded-lg border border-border p-3">
+            <div className="flex items-center justify-between">
+              <span className="text-sm text-foreground">
+                a follow-up thank-you message
+              </span>
+              <Toggle
+                on={followUpEnabled}
+                onToggle={() => setFollowUpEnabled(!followUpEnabled)}
+              />
+            </div>
+            {followUpEnabled && (
+              <div className="mt-3 space-y-2">
+                <textarea
+                  value={followUpMessage}
+                  onChange={(e) => setFollowUpMessage(e.target.value)}
+                  placeholder="Btw just wanted to say thanks for following me, I appreciate the support 🙌"
+                  rows={3}
+                  className="w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-foreground placeholder:text-zinc-500 focus:border-accent/40 focus:outline-none resize-none"
+                  maxLength={1000}
+                />
+                <p className="text-xs text-muted">
+                  Sent right after the link, once they&apos;ve tapped through.
+                  {" {username}"} personalizes it.
+                </p>
+              </div>
+            )}
           </div>
         </Section>
       </div>
@@ -832,6 +953,15 @@ export default function CampaignBuilder({ mode, campaignId }: CampaignBuilderPro
             revealMessage={dmMessage}
             hasLink={Boolean(trackedDestinationUrl.trim())}
             linkButtonLabel={linkButtonLabel || "Open link"}
+            hasSecondLink={
+              secondLinkOpen && Boolean(secondaryDestinationUrl.trim())
+            }
+            secondLinkButtonLabel={secondaryButtonLabel || "Open link"}
+            requireFollow={requireFollow}
+            followPromptMessage={followPromptMessage}
+            followPromptButtonLabel={followPromptButtonLabel || "i'm following"}
+            followUpEnabled={followUpEnabled}
+            followUpMessage={followUpMessage}
           />
         </div>
       </div>

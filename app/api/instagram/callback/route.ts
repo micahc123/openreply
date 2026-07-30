@@ -106,7 +106,27 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.redirect(`${baseUrl}/dashboard?connected=true`);
   } catch (err) {
+    const message = err instanceof Error ? err.message : "Unknown error";
     console.error("[Instagram Callback] Error:", err);
-    return NextResponse.redirect(`${baseUrl}/settings?instagram=failed`);
+    // The message is the only diagnostic a self-hoster gets for a failed
+    // connect, so persist it alongside the other operational events rather
+    // than leaving it in server logs they may not be able to reach.
+    await prisma.operationalEvent
+      .create({
+        data: {
+          source: "SYSTEM",
+          level: "ERROR",
+          workspaceId: state.workspaceId,
+          message: "Instagram connection failed",
+          payload: { reason: message },
+        },
+      })
+      .catch(() => {});
+
+    return NextResponse.redirect(
+      `${baseUrl}/settings?instagram=failed&reason=${encodeURIComponent(
+        message.slice(0, 200)
+      )}`
+    );
   }
 }

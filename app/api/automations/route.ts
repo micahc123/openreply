@@ -31,6 +31,11 @@ const createAutomationSchema = z
     openingDmMessage: z.string().max(1000).optional().nullable(),
     openingDmButtonLabel: z.string().max(64).optional().nullable(),
     linkButtonLabel: z.string().max(20).optional().nullable(),
+    requireFollow: z.boolean().optional().default(false),
+    followPromptMessage: z.string().max(1000).optional().nullable(),
+    followPromptButtonLabel: z.string().max(20).optional().nullable(),
+    followUpEnabled: z.boolean().optional().default(false),
+    followUpMessage: z.string().max(1000).optional().nullable(),
     publicReplyEnabled: z.boolean().optional().default(false),
     publicReplyMessage: z.string().max(1000).optional().nullable(),
     publicReplyMessages: z
@@ -43,6 +48,12 @@ const createAutomationSchema = z
       .union([z.string().url(), z.literal("")])
       .optional()
       .nullable(),
+    // Optional second tracked link, rendered as a second DM button.
+    secondaryDestinationUrl: z
+      .union([z.string().url(), z.literal("")])
+      .optional()
+      .nullable(),
+    secondaryButtonLabel: z.string().max(20).optional().nullable(),
     isActive: z.boolean().optional().default(true),
     wholeWordMatch: z.boolean().optional().default(true),
   })
@@ -79,6 +90,11 @@ const updateAutomationSchema = z.object({
   openingDmMessage: z.string().max(1000).optional().nullable(),
   openingDmButtonLabel: z.string().max(64).optional().nullable(),
   linkButtonLabel: z.string().max(20).optional().nullable(),
+  requireFollow: z.boolean().optional(),
+  followPromptMessage: z.string().max(1000).optional().nullable(),
+  followPromptButtonLabel: z.string().max(20).optional().nullable(),
+  followUpEnabled: z.boolean().optional(),
+  followUpMessage: z.string().max(1000).optional().nullable(),
   publicReplyEnabled: z.boolean().optional(),
   publicReplyMessage: z.string().max(1000).optional().nullable(),
   publicReplyMessages: z.array(z.string().max(1000)).max(10).optional(),
@@ -91,6 +107,12 @@ const updateAutomationSchema = z.object({
     .union([z.string().url(), z.literal("")])
     .optional()
     .nullable(),
+  // Same semantics for the optional second tracked link / DM button.
+  secondaryDestinationUrl: z
+    .union([z.string().url(), z.literal("")])
+    .optional()
+    .nullable(),
+  secondaryButtonLabel: z.string().max(20).optional().nullable(),
 });
 
 export async function GET(request: NextRequest) {
@@ -313,7 +335,33 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const { trackedDestinationUrl } = parsed.data;
+  const { trackedDestinationUrl, secondaryDestinationUrl, secondaryButtonLabel } =
+    parsed.data;
+
+  // The primary link's button title comes from `linkButtonLabel`; the second
+  // link stores its own button title in the tracked link's `label` field.
+  const linkCreates: {
+    workspaceId: string;
+    slug: string;
+    label: string;
+    destinationUrl: string;
+  }[] = [];
+  if (trackedDestinationUrl) {
+    linkCreates.push({
+      workspaceId,
+      slug: generateTrackedLinkSlug(),
+      label: "Primary campaign link",
+      destinationUrl: trackedDestinationUrl,
+    });
+  }
+  if (secondaryDestinationUrl) {
+    linkCreates.push({
+      workspaceId,
+      slug: generateTrackedLinkSlug(),
+      label: secondaryButtonLabel?.trim() || "Open link",
+      destinationUrl: secondaryDestinationUrl,
+    });
+  }
 
   const { pendingNextReel, matchAnyPost, matchAnyWord, openingDmEnabled } =
     parsed.data;
@@ -349,6 +397,17 @@ export async function POST(request: NextRequest) {
         ? parsed.data.openingDmButtonLabel || null
         : null,
       linkButtonLabel: parsed.data.linkButtonLabel || null,
+      requireFollow: parsed.data.requireFollow,
+      followPromptMessage: parsed.data.requireFollow
+        ? parsed.data.followPromptMessage || null
+        : null,
+      followPromptButtonLabel: parsed.data.requireFollow
+        ? parsed.data.followPromptButtonLabel || null
+        : null,
+      followUpEnabled: parsed.data.followUpEnabled,
+      followUpMessage: parsed.data.followUpEnabled
+        ? parsed.data.followUpMessage || null
+        : null,
       publicReplyEnabled: parsed.data.publicReplyEnabled,
       publicReplyMessages: parsed.data.publicReplyEnabled
         ? publicReplyList
@@ -361,17 +420,8 @@ export async function POST(request: NextRequest) {
       workspaceId,
       instagramAccountId: instagramAccount.id,
       reportShareSlug: generateReportShareSlug(),
-      ...(trackedDestinationUrl
-        ? {
-            trackedLinks: {
-              create: {
-                workspaceId,
-                slug: generateTrackedLinkSlug(),
-                label: "Primary campaign link",
-                destinationUrl: trackedDestinationUrl,
-              },
-            },
-          }
+      ...(linkCreates.length > 0
+        ? { trackedLinks: { create: linkCreates } }
         : {}),
     },
     include: {
@@ -436,7 +486,12 @@ export async function PATCH(request: NextRequest) {
     );
   }
 
-  const { trackedDestinationUrl, ...automationData } = parsed.data;
+  const {
+    trackedDestinationUrl,
+    secondaryDestinationUrl,
+    secondaryButtonLabel,
+    ...automationData
+  } = parsed.data;
 
   // Keep dependent fields consistent: any-word clears keywords; a disabled
   // opening DM clears its message and button.
@@ -444,6 +499,13 @@ export async function PATCH(request: NextRequest) {
   if (automationData.openingDmEnabled === false) {
     automationData.openingDmMessage = null;
     automationData.openingDmButtonLabel = null;
+  }
+  if (automationData.requireFollow === false) {
+    automationData.followPromptMessage = null;
+    automationData.followPromptButtonLabel = null;
+  }
+  if (automationData.followUpEnabled === false) {
+    automationData.followUpMessage = null;
   }
   // Any-post / next-reel campaigns carry no specific post.
   if (automationData.matchAnyPost === true || automationData.pendingNextReel === true) {
@@ -493,6 +555,39 @@ export async function PATCH(request: NextRequest) {
           slug: generateTrackedLinkSlug(),
           label: "Primary campaign link",
           destinationUrl: trackedDestinationUrl,
+        },
+      });
+    }
+  }
+
+  // Update, create, or clear the campaign's second tracked link. It is always
+  // the link at index [1] (ordered by createdAt), and its `label` holds the
+  // second button's title.
+  if (secondaryDestinationUrl !== undefined && secondaryDestinationUrl !== null) {
+    const links = await prisma.trackedLink.findMany({
+      where: { automationId },
+      orderBy: { createdAt: "asc" },
+    });
+    const secondaryLink = links[1];
+    const secondaryLabel = secondaryButtonLabel?.trim() || "Open link";
+
+    if (secondaryDestinationUrl === "") {
+      if (secondaryLink) {
+        await prisma.trackedLink.delete({ where: { id: secondaryLink.id } });
+      }
+    } else if (secondaryLink) {
+      await prisma.trackedLink.update({
+        where: { id: secondaryLink.id },
+        data: { destinationUrl: secondaryDestinationUrl, label: secondaryLabel },
+      });
+    } else {
+      await prisma.trackedLink.create({
+        data: {
+          workspaceId,
+          automationId,
+          slug: generateTrackedLinkSlug(),
+          label: secondaryLabel,
+          destinationUrl: secondaryDestinationUrl,
         },
       });
     }

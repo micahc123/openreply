@@ -4,6 +4,7 @@ import { getDMQueue } from "@/lib/queue/client";
 import {
   parseCommentEvents,
   parsePostbackEvents,
+  parseReadEvents,
   verifyWebhookSignature,
 } from "@/lib/meta/webhook";
 import { POSTBACK_JOB_NAME } from "@/lib/queue/client";
@@ -12,6 +13,8 @@ import {
   PRIORITY_COMMENT,
   PRIORITY_POSTBACK,
 } from "@/lib/queue/priority";
+
+const OPENING_DM_READ_FALLBACK_DELAY_MS = 5 * 60 * 1000;
 
 export async function GET(request: NextRequest) {
   const searchParams = request.nextUrl.searchParams;
@@ -139,6 +142,57 @@ export async function POST(request: NextRequest) {
           priority: PRIORITY_POSTBACK,
         }
       );
+    }
+
+    // If a user reads the opening DM and never taps the button, deliver the
+    // same next-step DM after five minutes. The worker no-ops this delayed job
+    // if a real button tap has already delivered the reveal.
+    const readEvents = parseReadEvents(
+      payload as Parameters<typeof parseReadEvents>[0]
+    );
+
+    for (const event of readEvents) {
+      const openingLogs = await prisma.dmLog.findMany({
+        where: {
+          commenterId: event.userId,
+          status: "SENT",
+          automation: {
+            isActive: true,
+            openingDmEnabled: true,
+            instagramAccount: {
+              instagramId: event.instagramAccountId,
+            },
+          },
+        },
+        select: {
+          automation: {
+            select: {
+              id: true,
+            },
+          },
+        },
+      });
+
+      const scheduledAutomationIds = new Set<string>();
+      for (const log of openingLogs) {
+        const automation = log.automation;
+        if (scheduledAutomationIds.has(automation.id)) continue;
+        scheduledAutomationIds.add(automation.id);
+
+        await queue.add(
+          POSTBACK_JOB_NAME,
+          {
+            instagramAccountId: event.instagramAccountId,
+            userId: event.userId,
+            payload: `reveal:${automation.id}`,
+            fallback: true,
+          },
+          {
+            delay: OPENING_DM_READ_FALLBACK_DELAY_MS,
+            jobId: `read_fallback_${event.instagramAccountId}_${event.userId}_${automation.id}`,
+          }
+        );
+      }
     }
 
     await prisma.webhookEvent.update({

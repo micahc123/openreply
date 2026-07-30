@@ -28,6 +28,13 @@ interface CampaignPreviewProps {
   revealMessage: string;
   hasLink: boolean;
   linkButtonLabel: string;
+  hasSecondLink: boolean;
+  secondLinkButtonLabel: string;
+  requireFollow: boolean;
+  followPromptMessage: string;
+  followPromptButtonLabel: string;
+  followUpEnabled: boolean;
+  followUpMessage: string;
 }
 
 const SAMPLE_USER = "username";
@@ -292,6 +299,13 @@ function DmScreen({
   revealMessage,
   hasLink,
   linkButtonLabel,
+  hasSecondLink,
+  secondLinkButtonLabel,
+  requireFollow,
+  followPromptMessage,
+  followPromptButtonLabel,
+  followUpEnabled,
+  followUpMessage,
 }: {
   username: string;
   avatarUrl: string | null;
@@ -301,6 +315,13 @@ function DmScreen({
   revealMessage: string;
   hasLink: boolean;
   linkButtonLabel: string;
+  hasSecondLink: boolean;
+  secondLinkButtonLabel: string;
+  requireFollow: boolean;
+  followPromptMessage: string;
+  followPromptButtonLabel: string;
+  followUpEnabled: boolean;
+  followUpMessage: string;
 }) {
   return (
     <div className="flex h-full flex-col text-white">
@@ -334,6 +355,27 @@ function DmScreen({
             </div>
           </>
         )}
+        {requireFollow && (
+          <>
+            <div className="flex items-end gap-2">
+              <Avatar url={avatarUrl} size={24} />
+              <div className="max-w-[80%] overflow-hidden rounded-2xl rounded-bl-md bg-zinc-800">
+                <p className="whitespace-pre-wrap px-3 py-2 text-sm">
+                  {followPromptMessage ||
+                    "quick favor before i send your link. i don't make any money from this, it's free. if you want to support me, just don't unfollow after, and star the repo on github if it helps you. tap the button once you're following and i'll send it over"}
+                </p>
+                <div className="mx-1.5 mb-1.5 rounded-xl bg-zinc-700 px-4 py-1.5 text-center text-sm font-medium text-white">
+                  {followPromptButtonLabel || "i'm following"}
+                </div>
+              </div>
+            </div>
+            <div className="flex justify-end">
+              <div className="rounded-2xl rounded-br-md bg-accent px-3 py-2 text-sm">
+                {followPromptButtonLabel || "i'm following"}
+              </div>
+            </div>
+          </>
+        )}
         {(() => {
           const resolved = revealMessage.replace(/\{username\}/g, SAMPLE_USER);
           const hasToken = resolved.includes("{link}");
@@ -355,14 +397,33 @@ function DmScreen({
                   </p>
                 )}
                 {showCard && (
-                  <div className="mx-1.5 mb-1.5 rounded-xl bg-zinc-700 px-4 py-1.5 text-center text-sm font-medium text-white">
-                    {linkButtonLabel || "Open link"}
-                  </div>
+                  <>
+                    <div className="mx-1.5 mb-1.5 rounded-xl bg-zinc-700 px-4 py-1.5 text-center text-sm font-medium text-white">
+                      {linkButtonLabel || "Open link"}
+                    </div>
+                    {hasSecondLink && (
+                      <div className="mx-1.5 mb-1.5 rounded-xl bg-zinc-700 px-4 py-1.5 text-center text-sm font-medium text-white">
+                        {secondLinkButtonLabel || "Open link"}
+                      </div>
+                    )}
+                  </>
                 )}
               </div>
             </div>
           );
         })()}
+        {followUpEnabled && (
+          <div className="flex items-end gap-2">
+            <Avatar url={avatarUrl} size={24} />
+            <div className="max-w-[80%] rounded-2xl rounded-bl-md bg-zinc-800 px-3 py-2">
+              <p className="whitespace-pre-wrap text-sm">
+                {followUpMessage.trim()
+                  ? followUpMessage.replace(/\{username\}/g, SAMPLE_USER)
+                  : "Btw just wanted to say thanks for following me, I appreciate the support 🙌"}
+              </p>
+            </div>
+          </div>
+        )}
       </div>
 
       <div className="flex items-center gap-2 px-3 py-3">
@@ -415,6 +476,13 @@ export default function CampaignPreview(props: CampaignPreviewProps) {
             revealMessage={props.revealMessage}
             hasLink={props.hasLink}
             linkButtonLabel={props.linkButtonLabel}
+            hasSecondLink={props.hasSecondLink}
+            secondLinkButtonLabel={props.secondLinkButtonLabel}
+            requireFollow={props.requireFollow}
+            followPromptMessage={props.followPromptMessage}
+            followPromptButtonLabel={props.followPromptButtonLabel}
+            followUpEnabled={props.followUpEnabled}
+            followUpMessage={props.followUpMessage}
           />
         )}
       </Phone>

@@ -9,6 +9,11 @@ import {
   type InstagramMedia,
 } from "@/lib/meta/client";
 import { decryptToken } from "@/lib/meta/oauth";
+import {
+  ensureFollowerHistory,
+  getFollowerHistory,
+  type FollowerHistoryPoint,
+} from "@/lib/reports/follower-history";
 
 // Allow time for paginated media + per-post insight calls on larger accounts.
 export const maxDuration = 60;
@@ -65,6 +70,13 @@ export interface OverviewResponse {
   requestedCount: "all" | number;
   truncated: boolean;
   insightsAvailable: boolean;
+  /** Current follower total, or null if Instagram did not return it. */
+  followers: number | null;
+  /**
+   * Follower total per day, ascending. Independent of the selected post range —
+   * limited to what has been snapshotted plus any 30-day insights backfill.
+   */
+  followerHistory: FollowerHistoryPoint[];
   totals: {
     posts: number;
     views: number;
@@ -204,12 +216,32 @@ export async function GET(request: NextRequest) {
       select: { id: true, username: true },
     });
 
+    // Followers is a point-in-time figure and deliberately not part of
+    // `totals`, which sums over the selected posts. A failure here must not
+    // take down the rest of the overview.
+    let followers: number | null = null;
+    let followerHistory: FollowerHistoryPoint[] = [];
+    try {
+      followers = await ensureFollowerHistory(
+        { id: account.id, instagramId: account.instagramId },
+        accessToken
+      );
+      followerHistory = await getFollowerHistory(account.id);
+    } catch (err) {
+      console.warn(
+        "[Instagram Overview] Follower history unavailable:",
+        err instanceof Error ? err.message : err
+      );
+    }
+
     const data: OverviewResponse = {
       account: { id: account.id, username: account.username },
       accounts,
       requestedCount,
       truncated,
       insightsAvailable: insightsAvailable && !permissionDenied,
+      followers,
+      followerHistory,
       totals,
       posts,
     };
