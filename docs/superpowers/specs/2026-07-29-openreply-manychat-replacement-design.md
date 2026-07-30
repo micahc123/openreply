@@ -122,10 +122,40 @@ Until that is granted, ManyChat remains the live funnel and its subscription
 must not be cancelled. The deployment stays provisioned and ready; it becomes
 functional the moment Advanced Access lands.
 
-To record the App Review screencast, add the *second* test Instagram account as
-an Instagram Tester as well. Development mode permits interaction between
-app-role accounts, so the full flow can be demonstrated for real — that is the
-only way to produce the recording before access is granted.
+### The tester-role workaround does NOT work either (tested 2026-07-30)
+
+A second account (`micahc71`) was added as an Instagram Tester and **accepted**
+the invite, then commented a configured keyword on a recent post. Sweeps stayed
+at `seen=0 own=0 matched=0` while confirmed live (row ages cycling 7–48s).
+
+So Development mode serves **no comment data at all** — not even for accounts
+holding a role on the app. Reading the comments edge requires Advanced Access,
+full stop. An earlier revision of this document claimed the tester role was a
+viable screencast workaround; that claim was untested and is false.
+
+### Untested hypothesis: the webhook path may still be open
+
+Polling and webhooks are different mechanisms. The blocked one is *reading* the
+comments edge. The `comments` **webhook pushes the `comment_id` to us**, so it
+never reads that edge — and a private reply only needs a `comment_id`.
+
+Meta requires the app to be in **published (Live)** state to receive webhooks,
+and publishing is a separate switch from App Review; per Meta's own setup text it
+may be permitted for tester accounts before review. If so, the sequence is:
+
+1. Set privacy / terms / data-deletion URLs (required to publish).
+2. Publish the app (reversible).
+3. Configure the webhook: callback `/api/webhook`, the `WEBHOOK_VERIFY_TOKEN`
+   value, subscribe to the `comments` field.
+4. Comment from a tester account.
+
+**This is a hypothesis, not a verified result.** It is plausible because it
+routes around the specific thing observed to be blocked, but the original plan
+deliberately avoided publishing and webhooks in favour of polling — which turned
+out to be exactly backwards, since polling is the path dev mode blocks.
+
+If publishing is refused pending review, App Review is unavoidable and the
+screencast has to be produced after Advanced Access is granted.
 
 Note `META_APP_REVIEW.md` (upstream) opens by saying review is unnecessary if
 you run OpenReply for your own accounts. That is wrong for this use case and is
