@@ -23,6 +23,12 @@ export const TOKEN_REFRESH_INTERVAL_MS = 24 * 60 * 60 * 1000;
 // minutes of the reel posting instead of up to a day later.
 export const REEL_ATTACH_INTERVAL_MS = 5 * 60 * 1000;
 
+// app/api/cron/snapshot-followers: records a daily follower count so the
+// history chart has data points. Added upstream alongside the follow gate;
+// like the others it is only wired to Vercel Cron, so on Railway nothing
+// would ever call it and the chart would stay permanently empty.
+export const FOLLOWER_SNAPSHOT_INTERVAL_MS = 24 * 60 * 60 * 1000;
+
 // Derives a short label from the route path so worker logs stay
 // distinguishable between routes, e.g. "/api/cron/attach-next-reel" ->
 // "attach-next-reel".

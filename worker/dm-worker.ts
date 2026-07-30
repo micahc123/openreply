@@ -6,6 +6,7 @@ import {
   pingCronRoute,
   TOKEN_REFRESH_INTERVAL_MS,
   REEL_ATTACH_INTERVAL_MS,
+  FOLLOWER_SNAPSHOT_INTERVAL_MS,
 } from "@/lib/ops/cron-ping";
 import os from "node:os";
 
@@ -62,6 +63,14 @@ const tokenRefreshTimer = setInterval(
 // every 5 minutes and a campaign goes live within minutes of the reel
 // posting. First run staggered 30s after the token-refresh ping so the two
 // don't fire together on boot.
+// Daily follower snapshot. First run staggered after the other two so the
+// three pings do not fire simultaneously on boot.
+setTimeout(() => void pingCronRoute("/api/cron/snapshot-followers"), 120_000);
+const followerSnapshotTimer = setInterval(
+  () => void pingCronRoute("/api/cron/snapshot-followers"),
+  FOLLOWER_SNAPSHOT_INTERVAL_MS
+);
+
 setTimeout(() => void pingCronRoute("/api/cron/attach-next-reel"), 90_000);
 const reelAttachTimer = setInterval(
   () => void pingCronRoute("/api/cron/attach-next-reel"),
@@ -74,6 +83,7 @@ async function shutdown(signal: string) {
   clearInterval(pollTimer);
   clearInterval(tokenRefreshTimer);
   clearInterval(reelAttachTimer);
+  clearInterval(followerSnapshotTimer);
   await worker.close();
   process.exit(0);
 }
