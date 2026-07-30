@@ -2,7 +2,7 @@
 
 **Date:** 2026-07-29
 **Owner:** Micah Chen (@micahc123)
-**Status:** Approved, ready for implementation planning
+**Status:** Built and deployed. Phase 1 (no-App-Review) premise DISPROVEN 2026-07-30 — see Rollout phases. Blocked on Meta business verification + App Review.
 
 ## Problem
 
@@ -83,15 +83,53 @@ dropped DMs.
 
 ## Rollout phases
 
-### Phase 1 — live without App Review
+### Phase 1 — DISPROVEN 2026-07-30
 
-The Meta app stays in Development mode with the target Instagram account added
-in the Instagram Tester role. No `comments` webhook subscription, so no Advanced
-Access and no business verification. The **polling reconciler is the primary
-trigger**, at roughly one minute of latency.
+**This phase does not work. Do not plan around it.**
 
-This keeps Meta App Review off the critical path entirely. If review is later
-delayed or rejected, the funnel still works.
+The idea was: keep the Meta app in Development mode with the Instagram account
+added as an Instagram Tester, skip the `comments` webhook, and let the polling
+reconciler drive everything — putting App Review off the critical path.
+
+Tested against the live account and it fails. Over 8+ minutes of 60s sweeps the
+reconciler reported, every time:
+
+```
+media=10 comments=0 own=0 matched=0 alreadyReplied=0 enqueued=0   errors=[]
+```
+
+Media listing works (the account's own data, covered by basic scope). The
+comments edge returns **HTTP 200 with an empty list** — no error — even though
+the post visibly had many keyword comments hours old.
+
+Cause: in Development mode an app may only access data belonging to users who
+hold a role on it. Comments by members of the public are *their* data, and a
+comment-to-DM funnel exists precisely to act on strangers' comments. Meta's
+webhooks documentation states it directly for the `comments` field: **"Advanced
+Access is required."** That constraint governs reading comment data at all, not
+just webhook delivery.
+
+The empty-list-instead-of-error behaviour is what made this expensive to
+diagnose: nothing anywhere reports a permission problem.
+
+### Phase 1 (actual) — App Review is a prerequisite
+
+Advanced Access on `instagram_business_basic`,
+`instagram_business_manage_comments`, and `instagram_business_manage_messages`,
+which requires business verification (a document proving a legal entity).
+
+Until that is granted, ManyChat remains the live funnel and its subscription
+must not be cancelled. The deployment stays provisioned and ready; it becomes
+functional the moment Advanced Access lands.
+
+To record the App Review screencast, add the *second* test Instagram account as
+an Instagram Tester as well. Development mode permits interaction between
+app-role accounts, so the full flow can be demonstrated for real — that is the
+only way to produce the recording before access is granted.
+
+Note `META_APP_REVIEW.md` (upstream) opens by saying review is unnecessary if
+you run OpenReply for your own accounts. That is wrong for this use case and is
+what this design originally anchored on.
 
 ### Phase 2 — webhooks
 
