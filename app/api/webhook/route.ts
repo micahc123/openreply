@@ -8,6 +8,10 @@ import {
 } from "@/lib/meta/webhook";
 import { POSTBACK_JOB_NAME } from "@/lib/queue/client";
 import { Prisma } from "@/app/generated/prisma/client";
+import {
+  PRIORITY_COMMENT,
+  PRIORITY_POSTBACK,
+} from "@/lib/queue/priority";
 
 export async function GET(request: NextRequest) {
   const searchParams = request.nextUrl.searchParams;
@@ -99,6 +103,7 @@ export async function POST(request: NextRequest) {
         },
         {
           jobId: `comment_${event.instagramAccountId}_${event.commentId}`,
+          priority: PRIORITY_COMMENT,
         }
       );
 
@@ -130,6 +135,8 @@ export async function POST(request: NextRequest) {
           jobId: `postback_${event.instagramAccountId}_${event.userId}_${(
             event.mid ?? event.payload
           ).replace(/:/g, "_")}`,
+          // A person tapped a button and is waiting. Jump the comment backlog.
+          priority: PRIORITY_POSTBACK,
         }
       );
     }

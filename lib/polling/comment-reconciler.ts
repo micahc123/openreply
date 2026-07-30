@@ -35,6 +35,7 @@ import {
 } from "@/lib/meta/client";
 import { decryptToken } from "@/lib/meta/oauth";
 import { matchKeywords } from "@/lib/utils/keyword-matcher";
+import { PRIORITY_COMMENT } from "@/lib/queue/priority";
 
 // Only consider comments from the last few days — older ones are outside
 // Instagram's private-reply window anyway, so a DM to them would just fail.
@@ -260,15 +261,19 @@ async function sweepCampaign(
       // drop this add, so the comment would never be retried. Dedup is handled
       // above (owner-reply + DmLog guards) and the worker is idempotent
       // (publicReplySentAt / SENT), so re-processing a comment is safe.
-      await queue.add("process-comment", {
-        instagramAccountId: account.instagramId,
-        commentId: c.id,
-        commentText: c.text ?? "",
-        commenterId: c.from!.id,
-        commenterName: c.from?.username,
-        mediaId,
-        source: "POLLING",
-      });
+      await queue.add(
+        "process-comment",
+        {
+          instagramAccountId: account.instagramId,
+          commentId: c.id,
+          commentText: c.text ?? "",
+          commenterId: c.from!.id,
+          commenterName: c.from?.username,
+          mediaId,
+          source: "POLLING",
+        },
+        { priority: PRIORITY_COMMENT }
+      );
       stat.enqueued += 1;
     }
   }
