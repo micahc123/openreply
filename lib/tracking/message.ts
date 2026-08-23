@@ -77,7 +77,7 @@ export function renderMessageWithTracking({
 
   if (!primaryLink) return rendered;
 
-  const trackedUrl = buildTrackedUrl(primaryLink.slug, baseUrl);
+  const trackedUrl = resolveLinkUrl(primaryLink, baseUrl);
 
   if (/\{link\}/i.test(rendered)) {
     return rendered.replace(/\{link\}/gi, trackedUrl);
@@ -91,4 +91,33 @@ export function renderMessageWithTracking({
   }
 
   return rendered;
+}
+
+/**
+ * Whether link tracking is switched off for this deployment.
+ *
+ * Tracked links route through this app's own host (`/r/<slug>`), which is what
+ * records a click. That is normally what you want — but if that hostname is
+ * unreachable for some audience (an ISP that fails to resolve it, say), every
+ * link in every DM is dead for those people. Setting DISABLE_LINK_TRACKING=1
+ * sends the destination URL directly instead: no click stats, but the link
+ * always opens.
+ *
+ * Note this must NOT be implemented by dropping tracked links from a campaign.
+ * Instagram rejects a plain-text DM containing a raw URL (Meta error 508);
+ * business-sent links are only accepted inside a web_url button template. So
+ * the link still travels as a button — only the URL inside it changes.
+ */
+export function isLinkTrackingDisabled(): boolean {
+  return process.env.DISABLE_LINK_TRACKING === "1";
+}
+
+/** The URL to actually put in front of a user for a given tracked link. */
+export function resolveLinkUrl(
+  link: { slug: string; destinationUrl: string },
+  baseUrl?: string
+): string {
+  return isLinkTrackingDisabled()
+    ? link.destinationUrl
+    : buildTrackedUrl(link.slug, baseUrl);
 }
