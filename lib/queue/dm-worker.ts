@@ -552,6 +552,11 @@ async function processComment(job: Job<ProcessCommentJob>): Promise<void> {
           errorMessage: null,
         },
       });
+      // A successful send proves the token is alive; clear the marker so
+      // /api/health recovers immediately. Must be on BOTH send paths --
+      // comment replies and postback reveals -- or a comment-only account
+      // stays flagged after it has already recovered.
+      await clearTokenInvalid(automation.instagramAccountId);
     } catch (error) {
       await releaseWorkspaceDMReservation(
         automation.workspaceId,
