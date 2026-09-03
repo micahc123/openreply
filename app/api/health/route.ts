@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db/client";
 import { getDMQueue, getRedisConnection } from "@/lib/queue/client";
 import { getWorkerHealth } from "@/lib/ops/worker-health";
+import { getInvalidTokens } from "@/lib/ops/token-health";
 
 export const runtime = "nodejs";
 // Health must reflect live state (worker heartbeat, queue depth), never a
@@ -57,7 +58,7 @@ async function checkQueue(): Promise<HealthCheck & { counts?: unknown }> {
 }
 
 export async function GET() {
-  const [database, redis, queue, worker] = await Promise.all([
+  const [database, redis, queue, worker, invalidTokens] = await Promise.all([
     checkDatabase(),
     checkRedis(),
     checkQueue(),
@@ -67,13 +68,22 @@ export async function GET() {
       ageMs: null,
       error: error instanceof Error ? error.message : "Worker check failed",
     })),
+    getInvalidTokens(),
   ]);
+
+  // A dead Instagram token fails every send while every other check stays
+  // green, so it has to be its own signal or the outage is invisible.
+  const tokens = {
+    status: invalidTokens.length === 0 ? "ok" : "error",
+    ...(invalidTokens.length > 0 ? { invalid: invalidTokens } : {}),
+  };
 
   const healthy =
     database.status === "ok" &&
     redis.status === "ok" &&
     queue.status === "ok" &&
-    worker.healthy;
+    worker.healthy &&
+    tokens.status === "ok";
 
   return NextResponse.json(
     {
@@ -83,6 +93,7 @@ export async function GET() {
         redis,
         queue,
         worker,
+        tokens,
       },
     },
     { status: healthy ? 200 : 503 }

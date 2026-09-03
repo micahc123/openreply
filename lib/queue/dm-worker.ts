@@ -18,7 +18,12 @@ import {
   sendPrivateReply,
   sendPrivateReplyWithButton,
   sendPrivateReplyWithLinkButton,
+  TokenExpiredError,
 } from "@/lib/meta/client";
+import {
+  recordTokenInvalid,
+  clearTokenInvalid,
+} from "@/lib/ops/token-health";
 import { decryptToken } from "@/lib/meta/oauth";
 import { matchKeywords } from "@/lib/utils/keyword-matcher";
 import { reserveDMSlot } from "@/lib/utils/rate-limiter";
@@ -82,6 +87,30 @@ function buildInlineLinkFallback(
     bodyText;
   const extraUrls = trackedLinks.slice(1).map((link) => resolveLinkUrl(link));
   return extraUrls.length > 0 ? `${base}\n${extraUrls.join("\n")}` : base;
+}
+
+
+/**
+ * A Meta 190 means the token is dead until the owner re-authorises — every
+ * later send will fail the same way. Surface it once so the cause is visible
+ * in the operational log and /api/health, instead of burying it in hundreds of
+ * identical FAILED rows.
+ */
+async function noteTokenHealth(
+  error: unknown,
+  automation: {
+    workspaceId: string;
+    instagramAccountId: string;
+    instagramAccount: { username: string };
+  }
+): Promise<void> {
+  if (!(error instanceof TokenExpiredError)) return;
+  await recordTokenInvalid({
+    instagramAccountId: automation.instagramAccountId,
+    username: automation.instagramAccount.username,
+    workspaceId: automation.workspaceId,
+    message: error.message,
+  });
 }
 
 async function processComment(job: Job<ProcessCommentJob>): Promise<void> {
@@ -349,6 +378,7 @@ async function processComment(job: Job<ProcessCommentJob>): Promise<void> {
           errorMessage: formatError(error),
         },
       });
+      await noteTokenHealth(error, automation);
       throw error;
     }
 
@@ -541,6 +571,7 @@ async function processComment(job: Job<ProcessCommentJob>): Promise<void> {
           errorMessage: formatError(error),
         },
       });
+      await noteTokenHealth(error, automation);
       throw error;
     }
   }
@@ -758,6 +789,9 @@ async function processPostback(job: Job<ProcessPostbackJob>): Promise<void> {
       },
       update: { status: "SENT", dmSentAt: new Date(), errorMessage: null },
     });
+    // A successful send proves the token is alive again; clear the marker so
+    // /api/health recovers immediately rather than waiting out the TTL.
+    await clearTokenInvalid(automation.instagramAccountId);
   } catch (error) {
     await releaseWorkspaceDMReservation(automation.workspaceId, usage.periodStart);
     await prisma.dmLog.upsert({
@@ -777,6 +811,7 @@ async function processPostback(job: Job<ProcessPostbackJob>): Promise<void> {
       },
       update: { status: "FAILED", errorMessage: formatError(error) },
     });
+    await noteTokenHealth(error, automation);
     throw error;
   }
 }

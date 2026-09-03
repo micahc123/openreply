@@ -76,6 +76,15 @@ vi.mock("@/lib/meta/client", () => ({
       this.name = "MetaApiError";
     }
   },
+  // The worker imports this to detect a dead token (Meta code 190) and flag it
+  // for /api/health instead of burying it in identical FAILED rows.
+  TokenExpiredError: class TokenExpiredError extends Error {
+    code = 190;
+    constructor(message: string) {
+      super(message);
+      this.name = "TokenExpiredError";
+    }
+  },
 }));
 
 vi.mock("@/lib/meta/oauth", () => ({
