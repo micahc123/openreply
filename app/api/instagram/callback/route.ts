@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/db/client";
+import { clearTokenInvalid } from "@/lib/ops/token-health";
 import { getBaseUrl } from "@/lib/env";
 import { canConnectInstagramAccount } from "@/lib/instagram-accounts";
 import { getLongLivedToken, getUserInfo, subscribeInstagramAccountToWebhooks } from "@/lib/meta/client";
@@ -83,7 +84,7 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    await prisma.instagramAccount.upsert({
+    const account = await prisma.instagramAccount.upsert({
       where: { instagramId },
       create: {
         workspaceId: state.workspaceId,
@@ -103,6 +104,13 @@ export async function GET(request: NextRequest) {
         webhookSubscribed,
       },
     });
+
+    // Re-authorising IS the recovery signal for a dead token. Without this the
+    // dead-token marker would survive the reconnect, and because the worker
+    // now refuses to call Meta while that marker is set, nothing would ever
+    // send again — the marker could only be cleared by a successful send that
+    // the marker itself was preventing. Clearing it here breaks that deadlock.
+    await clearTokenInvalid(account.id);
 
     return NextResponse.redirect(`${baseUrl}/dashboard?connected=true`);
   } catch (err) {
