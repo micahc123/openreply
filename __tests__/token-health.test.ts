@@ -30,6 +30,7 @@ import {
   recordTokenInvalid,
   clearTokenInvalid,
   getInvalidTokens,
+  isTokenInvalid,
 } from "../lib/ops/token-health";
 
 const acct = {
@@ -79,5 +80,22 @@ describe("dead-token detection", () => {
   it("never throws if Redis is unavailable", async () => {
     mockSet.mockRejectedValueOnce(new Error("redis down"));
     await expect(recordTokenInvalid(acct)).resolves.toBeUndefined();
+  });
+});
+
+describe("fail-fast probe", () => {
+  it("reports a marked account as invalid", async () => {
+    await recordTokenInvalid(acct);
+    expect(await isTokenInvalid("acct_1")).toBe(true);
+  });
+
+  it("reports a healthy account as valid", async () => {
+    expect(await isTokenInvalid("acct_never_seen")).toBe(false);
+  });
+
+  // A Redis blip must not stop every send in the system.
+  it("assumes healthy when Redis is unreachable", async () => {
+    mockGet.mockRejectedValueOnce(new Error("redis down"));
+    expect(await isTokenInvalid("acct_1")).toBe(false);
   });
 });

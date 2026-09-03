@@ -23,6 +23,7 @@ import {
 import {
   recordTokenInvalid,
   clearTokenInvalid,
+  isTokenInvalid,
 } from "@/lib/ops/token-health";
 import { decryptToken } from "@/lib/meta/oauth";
 import { matchKeywords } from "@/lib/utils/keyword-matcher";
@@ -338,6 +339,30 @@ async function processComment(job: Job<ProcessCommentJob>): Promise<void> {
     // DM already sent on an earlier pass; the public reply retry above was all
     // this run needed. Don't re-send the DM.
     if (!needsDm) continue;
+
+    // The token is known-dead: every send would fail with a 190 anyway. Bail
+    // out BEFORE calling Meta. Three reasons this matters:
+    //   1. A failed private reply still consumes the hourly quota.
+    //   2. Hammering Meta with hundreds of invalid-token calls is itself the
+    //      kind of behaviour that gets an account flagged harder.
+    //   3. The comment's one private-reply slot stays unused, so the person can
+    //      actually be served once the owner reconnects.
+    // Left PENDING (not FAILED) precisely so it is easy to find and re-serve.
+    if (await isTokenInvalid(automation.instagramAccountId)) {
+      await prisma.dmLog
+        .update({
+          where: {
+            automationId_commentId: { automationId: automation.id, commentId },
+          },
+          data: {
+            status: "PENDING",
+            errorMessage:
+              "Deferred: Instagram token is invalid. Reconnect the account, then re-serve.",
+          },
+        })
+        .catch(() => {});
+      continue;
+    }
 
     const usage = await reserveWorkspaceDMSend(automation.workspaceId);
     if (!usage.allowed) {

@@ -102,3 +102,13 @@ export async function getInvalidTokens(): Promise<InvalidToken[]> {
     return [];
   }
 }
+
+/** Is this account's token currently known-bad? */
+export async function isTokenInvalid(instagramAccountId: string): Promise<boolean> {
+  try {
+    return (await getRedisConnection().get(`${KEY_PREFIX}${instagramAccountId}`)) !== null;
+  } catch {
+    // If we cannot tell, assume healthy — never block sends on a Redis blip.
+    return false;
+  }
+}
