@@ -80,6 +80,9 @@ const machineUpsertSchema = z
       .optional()
       .default([]),
     postId: z.string().trim().min(1).max(64).optional(),
+    // fire on the keyword under ANY post on the account: for one-unique-word-
+    // per-reel setups, where there's no need to tie a campaign to one reel
+    matchAnyPost: z.boolean().optional(),
     postUrl: z.string().trim().url().optional(),
     isActive: z.boolean().optional(),
   })
@@ -127,6 +130,13 @@ const machineUpsertSchema = z
         code: "custom",
         path: ["keywords"],
         message: `keyword "${keyword}" has no letters or digits, so it can never match a comment`,
+      });
+    }
+    if (d.matchAnyPost && (d.postId || d.postUrl)) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["matchAnyPost"],
+        message: "matchAnyPost fires on every post, so it can't also be bound to one: send matchAnyPost or postId, not both.",
       });
     }
     if (d.postUrl && !d.postId) {
@@ -239,7 +249,12 @@ async function upsertCampaign(
   let postId: string | null;
   let postUrl: string | null;
   let pendingNextReel: boolean;
-  if (input.postId) {
+  const matchAnyPost = input.matchAnyPost === true;
+  if (matchAnyPost) {
+    postId = null;
+    postUrl = null;
+    pendingNextReel = false;
+  } else if (input.postId) {
     postId = input.postId;
     postUrl =
       input.postUrl ??
@@ -302,7 +317,7 @@ async function upsertCampaign(
     postId,
     postUrl,
     pendingNextReel,
-    matchAnyPost: false,
+    matchAnyPost,
     keywords,
     matchAnyWord: false,
     wholeWordMatch: input.wholeWordMatch,

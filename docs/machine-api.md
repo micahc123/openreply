@@ -95,6 +95,7 @@ match the same comment, one of the two DMs will fail.
 | `followPromptButtonLabel` | string ≤20 | worker default | `i'm following` |
 | `publicReplyMessages` | string[] ≤10 | `[]` | One is picked at random for each comment. A non-empty list turns public replies on; an empty list turns them off. |
 | `postId` | string | | The Instagram media id. When set, the campaign is bound to that post now. |
+| `matchAnyPost` | boolean | `false` | Fire on the keyword under **any** post on the account, so it never waits for a reel. Use it when every reel has its own unique word. Can't be combined with `postId`. Any number can coexist (overlapping keywords only warn). |
 | `postUrl` | URL | | Stored for display only, and it requires `postId`. |
 | `isActive` | boolean | `true` | On update, kept as it is unless you send it, so a pause made in the dashboard survives a re-run. |
 

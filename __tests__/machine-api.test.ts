@@ -441,6 +441,31 @@ describe("POST /api/automations/machine/upsert", () => {
     expect(db.automations).toHaveLength(1);
   });
 
+  it("matchAnyPost: fires on any post, never waits for a reel, and many can coexist", async () => {
+    const res = await callUpsert({ ...baseBody, matchAnyPost: true });
+    expect(res.status).toBe(201);
+    const { data } = await res.json();
+    expect(data).toMatchObject({ pendingNextReel: false, postId: null });
+    expect(mockPrisma.automation.create.mock.calls[0][0].data).toMatchObject({ matchAnyPost: true, pendingNextReel: false, postId: null });
+    // a second any-post campaign with its own word is fine: no 409, no "already waiting"
+    const res2 = await callUpsert({ ...baseBody, key: "another-reel", keywords: ["local"], matchAnyPost: true });
+    expect(res2.status).toBe(201);
+    expect(db.automations).toHaveLength(2);
+  });
+
+  it("matchAnyPost moves an existing next-reel campaign onto every post", async () => {
+    await callUpsert(baseBody);
+    const res = await callUpsert({ ...baseBody, matchAnyPost: true });
+    expect(res.status).toBe(200);
+    expect(db.automations).toHaveLength(1);
+    expect(db.automations[0]).toMatchObject({ matchAnyPost: true, pendingNextReel: false, postId: null });
+  });
+
+  it("rejects matchAnyPost together with postId", async () => {
+    const res = await callUpsert({ ...baseBody, matchAnyPost: true, postId: "17900000000000001" });
+    expect(res.status).toBe(400);
+  });
+
   it("refuses a post that another campaign already uses", async () => {
     await callUpsert({ ...baseBody, postId: "17900000000000001" });
     const res = await callUpsert({ ...baseBody, key: "other", postId: "17900000000000001" });
