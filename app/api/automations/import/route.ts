@@ -3,7 +3,7 @@ import { z } from "zod";
 import { prisma } from "@/lib/db/client";
 import { getWorkspaceInstagramAccount } from "@/lib/instagram-accounts";
 import { generateReportShareSlug } from "@/lib/reports/share";
-import { generateTrackedLinkSlug } from "@/lib/tracking/server";
+import { buildPrimaryTrackedLinkCreate } from "@/lib/automations/campaign-fields";
 import {
   canManageWorkspace,
   getCurrentWorkspaceContext,
@@ -106,12 +106,10 @@ export async function POST(request: NextRequest) {
         ...(validTrackedUrl
           ? {
               trackedLinks: {
-                create: {
-                  workspaceId: context.workspaceId,
-                  slug: generateTrackedLinkSlug(),
-                  label: "Primary campaign link",
-                  destinationUrl: validTrackedUrl,
-                },
+                create: buildPrimaryTrackedLinkCreate(
+                  context.workspaceId,
+                  validTrackedUrl
+                ),
               },
             }
           : {}),

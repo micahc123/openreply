@@ -195,6 +195,11 @@ model Automation {
   wholeWordMatch Boolean @default(true)
   reportShareSlug    String? @unique
   reportShareEnabled Boolean @default(true)
+  /// Stable identity for campaigns created through the machine API
+  /// (/api/automations/machine/upsert), e.g. a reel slug. Re-sending the same
+  /// key for the same account updates the campaign instead of duplicating it.
+  /// Null for campaigns made in the dashboard, so they are never touched by it.
+  externalKey        String?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -205,6 +210,7 @@ model Automation {
   trackedLinks     TrackedLink[]
   linkClicks       LinkClick[]
 
+  @@unique([instagramAccountId, externalKey])
   @@index([workspaceId])
   @@index([instagramAccountId])
   @@index([postId])

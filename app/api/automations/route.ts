@@ -7,6 +7,12 @@ import { buildTrackedUrl } from "@/lib/tracking/message";
 import { generateTrackedLinkSlug } from "@/lib/tracking/server";
 import { buildReportUrl, generateReportShareSlug } from "@/lib/reports/share";
 import {
+  buildPrimaryTrackedLinkCreate,
+  followGateFields,
+  normalizePublicReplyList,
+  publicReplyFields,
+} from "@/lib/automations/campaign-fields";
+import {
   canManageWorkspace,
   getCurrentWorkspaceContext,
 } from "@/lib/workspace-access";
@@ -347,12 +353,9 @@ export async function POST(request: NextRequest) {
     destinationUrl: string;
   }[] = [];
   if (trackedDestinationUrl) {
-    linkCreates.push({
-      workspaceId,
-      slug: generateTrackedLinkSlug(),
-      label: "Primary campaign link",
-      destinationUrl: trackedDestinationUrl,
-    });
+    linkCreates.push(
+      buildPrimaryTrackedLinkCreate(workspaceId, trackedDestinationUrl)
+    );
   }
   if (secondaryDestinationUrl) {
     linkCreates.push({
@@ -367,15 +370,10 @@ export async function POST(request: NextRequest) {
     parsed.data;
   // A post is only stored for the "specific post" trigger.
   const isSpecificPost = !pendingNextReel && !matchAnyPost;
-  const publicReplyList = (
-    parsed.data.publicReplyMessages.length > 0
-      ? parsed.data.publicReplyMessages
-      : parsed.data.publicReplyMessage
-        ? [parsed.data.publicReplyMessage]
-        : []
-  )
-    .map((m) => m.trim())
-    .filter(Boolean);
+  const publicReplyList = normalizePublicReplyList(
+    parsed.data.publicReplyMessages,
+    parsed.data.publicReplyMessage
+  );
 
   const automation = await prisma.automation.create({
     data: {
@@ -397,24 +395,20 @@ export async function POST(request: NextRequest) {
         ? parsed.data.openingDmButtonLabel || null
         : null,
       linkButtonLabel: parsed.data.linkButtonLabel || null,
-      requireFollow: parsed.data.requireFollow,
-      followPromptMessage: parsed.data.requireFollow
-        ? parsed.data.followPromptMessage || null
-        : null,
-      followPromptButtonLabel: parsed.data.requireFollow
-        ? parsed.data.followPromptButtonLabel || null
-        : null,
+      ...followGateFields({
+        requireFollow: parsed.data.requireFollow,
+        followPromptMessage: parsed.data.followPromptMessage,
+        followPromptButtonLabel: parsed.data.followPromptButtonLabel,
+      }),
       followUpEnabled: parsed.data.followUpEnabled,
       followUpMessage: parsed.data.followUpEnabled
         ? parsed.data.followUpMessage || null
         : null,
-      publicReplyEnabled: parsed.data.publicReplyEnabled,
-      publicReplyMessages: parsed.data.publicReplyEnabled
-        ? publicReplyList
-        : [],
-      publicReplyMessage: parsed.data.publicReplyEnabled
-        ? publicReplyList[0] ?? parsed.data.publicReplyMessage ?? null
-        : null,
+      ...publicReplyFields({
+        enabled: parsed.data.publicReplyEnabled,
+        list: publicReplyList,
+        legacySingle: parsed.data.publicReplyMessage,
+      }),
       isActive: parsed.data.isActive,
       wholeWordMatch: parsed.data.wholeWordMatch,
       workspaceId,
@@ -550,11 +544,8 @@ export async function PATCH(request: NextRequest) {
     } else {
       await prisma.trackedLink.create({
         data: {
-          workspaceId,
+          ...buildPrimaryTrackedLinkCreate(workspaceId, trackedDestinationUrl),
           automationId,
-          slug: generateTrackedLinkSlug(),
-          label: "Primary campaign link",
-          destinationUrl: trackedDestinationUrl,
         },
       });
     }

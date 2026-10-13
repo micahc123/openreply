@@ -50,6 +50,39 @@ export function getMetaGraphApiVersion(): string {
   return process.env.META_GRAPH_API_VERSION ?? "v25.0";
 }
 
+/**
+ * Shortest AUTOMATION_API_KEY we accept. The key is a bearer secret that can
+ * create campaigns on every connected account, so a short, guessable value is
+ * treated as "not configured" rather than silently trusted.
+ */
+export const AUTOMATION_API_KEY_MIN_LENGTH = 32;
+
+export type AutomationApiKeyState =
+  | { status: "enabled"; key: string }
+  | { status: "disabled"; reason: string };
+
+/**
+ * The machine API (/api/automations/machine/*) is off unless
+ * AUTOMATION_API_KEY is set. Only the web service reads it; the worker never
+ * serves those routes.
+ */
+export function getAutomationApiKeyState(): AutomationApiKeyState {
+  const key = process.env.AUTOMATION_API_KEY?.trim();
+  if (!key) {
+    return {
+      status: "disabled",
+      reason: "Machine API is disabled: AUTOMATION_API_KEY is not set",
+    };
+  }
+  if (key.length < AUTOMATION_API_KEY_MIN_LENGTH) {
+    return {
+      status: "disabled",
+      reason: `Machine API is disabled: AUTOMATION_API_KEY must be at least ${AUTOMATION_API_KEY_MIN_LENGTH} characters`,
+    };
+  }
+  return { status: "enabled", key };
+}
+
 export const serverEnvSchema = z.object({
   NEXTAUTH_URL: z.string().url(),
   NEXTAUTH_SECRET: z.string().min(16),
@@ -60,6 +93,11 @@ export const serverEnvSchema = z.object({
   INSTAGRAM_APP_SECRET: z.string().min(1),
   FACEBOOK_APP_SECRET: z.string().min(1),
   WEBHOOK_VERIFY_TOKEN: z.string().min(1),
+  // Optional: unset keeps the machine API switched off (routes return 503).
+  AUTOMATION_API_KEY: z
+    .string()
+    .min(AUTOMATION_API_KEY_MIN_LENGTH)
+    .optional(),
 });
 
 export function validateCoreEnv() {

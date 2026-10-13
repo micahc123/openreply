@@ -102,6 +102,12 @@ Copy `.env.example` to `.env` for local work, or set these in Vercel and Railway
 
 `ENCRYPTION_KEY` must be exactly 64 hex characters or the app throws on boot.
 
+Optional, web service only:
+
+| Variable | What it is |
+| --- | --- |
+| `AUTOMATION_API_KEY` | Turns on the bearer-key machine API that scripts use to create campaigns ([docs/machine-api.md](machine-api.md)). At least 32 characters: `openssl rand -hex 32`. If it's unset, those routes return 503. The worker doesn't need it. |
+
 Optional, for tuning the polling reconciler (defaults are fine to start):
 
 | Variable | Default | What it does |
