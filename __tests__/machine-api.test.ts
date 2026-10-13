@@ -450,6 +450,8 @@ describe("POST /api/automations/machine/upsert", () => {
     // a second any-post campaign with its own word is fine: no 409, no "already waiting"
     const res2 = await callUpsert({ ...baseBody, key: "another-reel", keywords: ["local"], matchAnyPost: true });
     expect(res2.status).toBe(201);
+    // never warns about itself
+    expect((await res2.json()).data.warnings).toEqual([]);
     expect(db.automations).toHaveLength(2);
   });
 

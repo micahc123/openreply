@@ -418,7 +418,8 @@ async function upsertCampaign(
   // An active any-post campaign whose keywords also fire on ours answers the
   // same comment first or second; one of the two private replies will fail.
   const anyPostCampaigns = await prisma.automation.findMany({
-    where: { ...otherCampaigns, isActive: true, matchAnyPost: true },
+    // not ourselves: on a create, otherCampaigns had no id to exclude yet
+    where: { ...otherCampaigns, id: { not: automation.id }, isActive: true, matchAnyPost: true },
     select: {
       id: true,
       name: true,
