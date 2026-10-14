@@ -141,3 +141,47 @@ forbids raw URLs.
 | 404 | The Instagram account isn't connected. |
 | 409 | The post is already used, another campaign is already waiting for the next reel, or two connected accounts share the username. |
 | 503 | `AUTOMATION_API_KEY` is unset or shorter than 32 characters. |
+
+## Auto-posting: `/api/automations/machine/posts`
+
+Queue a reel and OpenReply publishes it at its time through Instagram's content
+publishing API, then binds the campaign with the same `key` to the new post.
+It needs the `instagram_business_content_publish` permission on the Meta app
+(App Dashboard → Use cases → Instagram API → Permissions) and each account
+reconnected once afterwards, so its token carries the permission. Reconnect,
+never Disconnect: disconnecting deletes the account's campaigns and queue.
+
+Instagram Login has no upload endpoint; Instagram fetches the video from a
+public URL. So the file is uploaded here, served at an unguessable
+`/api/media/<token>/reel.mp4`, and deleted once the reel is live.
+
+```bash
+# 1. queue it (or update it: same account + key = same post)
+curl -X POST "$OPENREPLY_URL/api/automations/machine/posts" \
+  -H "Authorization: Bearer $AUTOMATION_API_KEY" -H "Content-Type: application/json" \
+  -d '{"instagramUsername":"henrycreates.ai","key":"ai-job-crew","caption":"…","scheduledAt":"2026-10-15T01:00:00Z"}'
+# → 201 {"data":{"id":"…","status":"DRAFT","upload":{"video":"/api/…/video","cover":"/api/…/cover"}}}
+
+# 2. upload the video (schedules it), and optionally a JPEG cover
+curl -X PUT "$OPENREPLY_URL/api/automations/machine/posts/<id>/video" \
+  -H "Authorization: Bearer $AUTOMATION_API_KEY" -H "Content-Type: video/mp4" --data-binary @reel.mp4
+curl -X PUT "$OPENREPLY_URL/api/automations/machine/posts/<id>/cover" \
+  -H "Authorization: Bearer $AUTOMATION_API_KEY" -H "Content-Type: image/jpeg" --data-binary @cover.jpg
+
+# the queue, and cancelling
+curl "$OPENREPLY_URL/api/automations/machine/posts?instagramUsername=henrycreates.ai" -H "Authorization: Bearer $AUTOMATION_API_KEY"
+curl -X DELETE "$OPENREPLY_URL/api/automations/machine/posts/<id>" -H "Authorization: Bearer $AUTOMATION_API_KEY"
+```
+
+Statuses: `DRAFT` (no video yet) → `SCHEDULED` → `PROCESSING` (Instagram is
+fetching the video, ~1 min) → `PUBLISHING` → `PUBLISHED` (with `permalink`), or
+`FAILED` with `error`, or `CANCELED`. The worker pings
+`/api/cron/publish-scheduled` every minute (lib/publishing/publisher.ts).
+
+- Re-sending a `FAILED` or `CANCELED` post puts it back in the queue; a
+  `PUBLISHED` one answers 409 with its permalink.
+- Network blips and rate limits retry up to 3 times. A failed `media_publish`
+  is never retried by itself: check the account before re-sending.
+- Limits: video ≤ 150 MB (`video/mp4` or `video/quicktime`), cover ≤ 8 MB
+  JPEG, caption ≤ 2,200 characters. Instagram allows 100 API posts per account
+  per 24 hours.

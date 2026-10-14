@@ -84,6 +84,7 @@ model Workspace {
   linkClicks        LinkClick[]
   webhookEvents     WebhookEvent[]
   operationalEvents OperationalEvent[]
+  scheduledPosts    ScheduledPost[]
 
   @@index([ownerId])
 }
@@ -141,6 +142,7 @@ model InstagramAccount {
   dmLogs      DmLog[]
   linkClicks  LinkClick[]
   followerSnapshots FollowerSnapshot[]
+  scheduledPosts    ScheduledPost[]
 
   @@index([workspaceId])
 }
@@ -342,6 +344,76 @@ model OperationalEvent {
   @@index([source])
   @@index([level])
   @@index([createdAt])
+}
+
+/// A reel queued for automatic publishing through Instagram's content
+/// publishing API. Scripts create it through /api/automations/machine/posts,
+/// upload the video (and an optional cover) into PostMedia, and
+/// /api/cron/publish-scheduled publishes it at `scheduledAt`. See
+/// lib/publishing/publisher.ts and docs/machine-api.md.
+model ScheduledPost {
+  id                 String              @id @default(cuid())
+  workspaceId        String
+  instagramAccountId String
+  /// Stable identity from the caller, e.g. a reel slug. Re-sending the same key
+  /// for the same account updates the queued post instead of adding another.
+  externalKey        String
+  caption            String
+  scheduledAt        DateTime
+  status             ScheduledPostStatus @default(DRAFT)
+  /// Instagram's media container, once created. It is not public until
+  /// media_publish turns it into `mediaId`.
+  containerId        String?
+  containerAt        DateTime?
+  mediaId            String?
+  permalink          String?
+  error              String?
+  attempts           Int                 @default(0)
+  publishedAt        DateTime?
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
+
+  workspace        Workspace        @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  instagramAccount InstagramAccount @relation(fields: [instagramAccountId], references: [id], onDelete: Cascade)
+  media            PostMedia[]
+
+  @@unique([instagramAccountId, externalKey])
+  @@index([status, scheduledAt])
+  @@index([workspaceId])
+}
+
+/// A file Instagram fetches while publishing a ScheduledPost. Instagram pulls
+/// media from a public URL (no upload API with Instagram Login), so the bytes
+/// wait here behind an unguessable token (/api/media/<token>/...) and are
+/// deleted once the post is live.
+model PostMedia {
+  id          String   @id @default(cuid())
+  postId      String
+  /// "video" or "cover"
+  kind        String
+  token       String   @unique
+  contentType String
+  size        Int
+  data        Bytes
+  createdAt   DateTime @default(now())
+
+  post ScheduledPost @relation(fields: [postId], references: [id], onDelete: Cascade)
+
+  @@unique([postId, kind])
+}
+
+enum ScheduledPostStatus {
+  /// created; waiting for its video
+  DRAFT
+  /// has its video; waiting for scheduledAt
+  SCHEDULED
+  /// container created; Instagram is fetching and processing the video
+  PROCESSING
+  /// media_publish is in flight
+  PUBLISHING
+  PUBLISHED
+  FAILED
+  CANCELED
 }
 
 enum WorkspaceRole {

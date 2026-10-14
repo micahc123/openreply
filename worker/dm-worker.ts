@@ -7,6 +7,7 @@ import {
   TOKEN_REFRESH_INTERVAL_MS,
   REEL_ATTACH_INTERVAL_MS,
   FOLLOWER_SNAPSHOT_INTERVAL_MS,
+  PUBLISH_INTERVAL_MS,
 } from "@/lib/ops/cron-ping";
 import os from "node:os";
 
@@ -77,6 +78,14 @@ const reelAttachTimer = setInterval(
   REEL_ATTACH_INTERVAL_MS
 );
 
+// Auto-posting: publishes queued reels when their time comes and polls the
+// ones Instagram is still processing.
+setTimeout(() => void pingCronRoute("/api/cron/publish-scheduled"), 45_000);
+const publishTimer = setInterval(
+  () => void pingCronRoute("/api/cron/publish-scheduled"),
+  PUBLISH_INTERVAL_MS
+);
+
 async function shutdown(signal: string) {
   console.log(`[DM Worker] ${signal} received, closing worker`);
   clearInterval(heartbeatTimer);
@@ -84,6 +93,7 @@ async function shutdown(signal: string) {
   clearInterval(tokenRefreshTimer);
   clearInterval(reelAttachTimer);
   clearInterval(followerSnapshotTimer);
+  clearInterval(publishTimer);
   await worker.close();
   process.exit(0);
 }

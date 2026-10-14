@@ -29,6 +29,11 @@ export const REEL_ATTACH_INTERVAL_MS = 5 * 60 * 1000;
 // would ever call it and the chart would stay permanently empty.
 export const FOLLOWER_SNAPSHOT_INTERVAL_MS = 24 * 60 * 60 * 1000;
 
+// app/api/cron/publish-scheduled: publishes queued reels at their time and
+// walks each one through Instagram's container processing. A minute is the
+// cadence Instagram recommends for polling a container's status.
+export const PUBLISH_INTERVAL_MS = 60 * 1000;
+
 // Derives a short label from the route path so worker logs stay
 // distinguishable between routes, e.g. "/api/cron/attach-next-reel" ->
 // "attach-next-reel".
